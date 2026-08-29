@@ -1,0 +1,8 @@
+# Optional allowlist / custom rules for worker-support secret scan.
+# See https://github.com/gitleaks/gitleaks#configuration
+
+[allowlist]
+description = "global allowlist"
+paths = [
+  '''\.md$''',
+]

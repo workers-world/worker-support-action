@@ -1,4 +1,7 @@
-*.log
+secrets-scan.json
+secrets-scan.md
+.scan-meta.json
+secret-scan.log
 __pycache__/
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).

@@ -18,7 +18,12 @@ jobs:
           set -euo pipefail
           test -x bump-worker-compat-date.sh
           test -f check-config-drift-remote.sh
+          test -x scan-secrets.sh
           bash -n bump-worker-compat-date.sh
           bash -n check-config-drift-remote.sh
+          bash -n scan-secrets.sh
+          python3 -m py_compile scan-secrets.py
           test -f .github/workflows/bump-compat-date.yml
           test -f .github/workflows/config-drift.yml
+          test -f .github/workflows/secret-scan.yml
+          test -f gitleaks.toml
