@@ -1,0 +1,74 @@
+# 每周检查 workers-world org 各仓配置是否偏离 templates/worker/ canonical（biome/npmrc/.github）
+# 以及 compatibility_date 是否过期；漂移/过期在本仓开 issue。
+name: Worker config drift
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"   # 每周一 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout worker templates (canonical)
+        uses: actions/checkout@v4
+        with:
+          repository: workers-world/cloudflare_work
+          path: templates-src
+          sparse-checkout-cone-mode: false
+          sparse-checkout: templates
+          token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Check biome/npmrc drift (remote org repos)
+        env:
+          GH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          TEMPLATES_ROOT: ${{ github.workspace }}/templates-src/templates
+        run: bash check-config-drift-remote.sh | tee config-drift.log
+
+      - name: Check stale compatibility_date (remote org repos)
+        env:
+          GH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          TEMPLATES_ROOT: ${{ github.workspace }}/templates-src/templates
+        run: bash bump-worker-compat-date.sh --check --max-age-days 30 --remote --create-issue | tee -a config-drift.log
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## config-drift summary" >> "$GITHUB_STEP_SUMMARY"
+          if [[ -f config-drift.log ]]; then
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            tail -80 config-drift.log >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Notify on failure
+        if: failure()
+        uses: workers-world/action-notify-email@v1
+        with:
+          subject: "worker-support: config-drift 失败"
+          body: |
+            Workflow: ${{ github.workflow }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          dedup-key: config-drift-fail-${{ github.run_id }}
+          fail-on-error: false
+        env:
+          NOTIFY_WORKER_URL: ${{ vars.NOTIFY_WORKER_URL }}
+          NOTIFY_AUTH_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}
+
+      - name: Notify summary
+        if: success()
+        uses: workers-world/action-notify-email@v1
+        with:
+          subject: "worker-support: config-drift 完成"
+          body-file: config-drift.log
+          dedup-key: config-drift-ok-${{ github.run_id }}
+          fail-on-error: false
+        env:
+          NOTIFY_WORKER_URL: ${{ vars.NOTIFY_WORKER_URL }}
+          NOTIFY_AUTH_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}

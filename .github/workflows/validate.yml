@@ -1,0 +1,24 @@
+name: Validate action
+
+on:
+  push:
+    branches: ["dev_*"]
+  pull_request:
+    branches: ["dev_*"]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check scripts and workflows
+        run: |
+          set -euo pipefail
+          test -x bump-worker-compat-date.sh
+          test -f check-config-drift-remote.sh
+          bash -n bump-worker-compat-date.sh
+          bash -n check-config-drift-remote.sh
+          test -f .github/workflows/bump-compat-date.yml
+          test -f .github/workflows/config-drift.yml

@@ -1,0 +1,80 @@
+# 每月批量抬升 workers-world org 各 Worker 的 compatibility_date 并开 PR（不 auto-merge）。
+# 文档：workers-world-dot-github/docs/worker-compat-date.md
+name: Bump compatibility_date
+
+on:
+  schedule:
+    - cron: "0 4 1 * *"   # 每月 1 日 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: "YYYY-MM-DD（留空则今天 UTC）"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout worker templates (canonical)
+        uses: actions/checkout@v4
+        with:
+          repository: workers-world/cloudflare_work
+          path: templates-src
+          sparse-checkout-cone-mode: false
+          sparse-checkout: templates
+          token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Bump org workers and open PRs
+        id: bump
+        env:
+          GH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          TEMPLATES_ROOT: ${{ github.workspace }}/templates-src/templates
+        run: |
+          set -euo pipefail
+          args=(--remote --apply)
+          if [[ -n "${{ inputs.target_date }}" ]]; then
+            args+=(--date "${{ inputs.target_date }}")
+          fi
+          bash bump-worker-compat-date.sh "${args[@]}" | tee bump-compat-date.log
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## bump-compat-date summary" >> "$GITHUB_STEP_SUMMARY"
+          if [[ -f bump-compat-date.log ]]; then
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            tail -50 bump-compat-date.log >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Notify on failure
+        if: failure()
+        uses: workers-world/action-notify-email@v1
+        with:
+          subject: "worker-support: bump-compat-date 失败"
+          body: |
+            Workflow: ${{ github.workflow }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          dedup-key: bump-compat-date-fail-${{ github.run_id }}
+          fail-on-error: false
+        env:
+          NOTIFY_WORKER_URL: ${{ vars.NOTIFY_WORKER_URL }}
+          NOTIFY_AUTH_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}
+
+      - name: Notify summary
+        if: success()
+        uses: workers-world/action-notify-email@v1
+        with:
+          subject: "worker-support: bump-compat-date 完成"
+          body-file: bump-compat-date.log
+          dedup-key: bump-compat-date-ok-${{ github.run_id }}
+          fail-on-error: false
+        env:
+          NOTIFY_WORKER_URL: ${{ vars.NOTIFY_WORKER_URL }}
+          NOTIFY_AUTH_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}

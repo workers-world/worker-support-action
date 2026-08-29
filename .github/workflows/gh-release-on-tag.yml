@@ -1,0 +1,16 @@
+name: Create GitHub Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    uses: workers-world/worker-actions/.github/workflows/create-gh-release.yml@actions/v0.1.2
+    secrets: inherit
+    with:
+      tag_name: ${{ github.ref_name }}
