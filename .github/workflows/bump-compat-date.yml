@@ -79,7 +79,11 @@ jobs:
         uses: workers-world/action-notify-email@v1
         with:
           subject: "worker-support: bump-compat-date 完成"
-          body-file: bump-compat-date.log
+          body: |
+            Workflow: ${{ github.workflow }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            详细输出见 Actions 日志与本 workflow 的 Summary 步骤（含 bump-compat-date.log 末尾）。
           dedup-key: bump-compat-date-ok-${{ github.run_id }}
           fail-on-error: false
         env:
