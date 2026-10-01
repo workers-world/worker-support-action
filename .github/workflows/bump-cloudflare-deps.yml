@@ -86,7 +86,11 @@ jobs:
         uses: workers-world/action-notify-email@v1
         with:
           subject: "worker-support: bump-cloudflare-deps 完成"
-          body-file: bump-cloudflare-deps.log
+          body: |
+            Workflow: ${{ github.workflow }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            详细输出见 Actions 日志与本 workflow 的 Summary 步骤（含 bump-cloudflare-deps.log 末尾）。
           dedup-key: bump-cloudflare-deps-ok-${{ github.run_id }}
           fail-on-error: false
         env:
