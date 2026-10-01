@@ -1,0 +1,86 @@
+# 定期将 workers-world org 各仓 Cloudflare 相关 npm 依赖升至 latest 并开 PR（无升级则静默跳过）。
+# Linear WW-49 · GitHub workers-world/worker-support-action#6
+name: Bump Cloudflare npm deps
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"   # 每周一 05:00 UTC
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "仅处理单个仓名（留空则扫描全 org）"
+        required: false
+        type: string
+      dry_run:
+        description: "只打印将开的 PR，不推送"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable Corepack (pnpm/yarn lockfiles)
+        run: corepack enable
+
+      - name: Bump org Cloudflare npm deps and open PRs
+        id: bump
+        env:
+          GH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          args=(--remote --apply)
+          if [[ -n "${{ inputs.repo }}" ]]; then
+            args+=(--repo "${{ inputs.repo }}")
+          fi
+          if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            args+=(--dry-run)
+          fi
+          bash bump-cloudflare-npm-deps.sh "${args[@]}" | tee bump-cloudflare-deps.log
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## bump-cloudflare-deps summary" >> "$GITHUB_STEP_SUMMARY"
+          if [[ -f bump-cloudflare-deps.log ]]; then
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            tail -50 bump-cloudflare-deps.log >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Notify on failure
+        if: failure()
+        uses: workers-world/action-notify-email@v1
+        with:
+          subject: "worker-support: bump-cloudflare-deps 失败"
+          body: |
+            Workflow: ${{ github.workflow }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          dedup-key: bump-cloudflare-deps-fail-${{ github.run_id }}
+          fail-on-error: false
+        env:
+          NOTIFY_WORKER_URL: ${{ vars.NOTIFY_WORKER_URL }}
+          NOTIFY_AUTH_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}
+
+      - name: Notify summary
+        if: success()
+        uses: workers-world/action-notify-email@v1
+        with:
+          subject: "worker-support: bump-cloudflare-deps 完成"
+          body-file: bump-cloudflare-deps.log
+          dedup-key: bump-cloudflare-deps-ok-${{ github.run_id }}
+          fail-on-error: false
+        env:
+          NOTIFY_WORKER_URL: ${{ vars.NOTIFY_WORKER_URL }}
+          NOTIFY_AUTH_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}
