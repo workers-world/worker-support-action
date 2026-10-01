@@ -291,6 +291,46 @@ resolve_release_branch() {
   return 1
 }
 
+ensure_gh_git_auth() {
+  if [[ -n "${GH_TOKEN:-}" ]] && command -v gh >/dev/null 2>&1; then
+    gh auth setup-git
+  fi
+}
+
+ensure_git_identity() {
+  if [[ -z "$(git config --get user.email 2>/dev/null || true)" ]]; then
+    git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+  fi
+  if [[ -z "$(git config --get user.name 2>/dev/null || true)" ]]; then
+    git config --global user.name "github-actions[bot]"
+  fi
+}
+
+clone_org_repo() {
+  local name="$1"
+  local dest="$2"
+  local shallow="${3:-}"
+  if command -v gh >/dev/null 2>&1 && [[ -n "${GH_TOKEN:-}" ]]; then
+    if [[ "$shallow" == "shallow" ]]; then
+      gh repo clone "workers-world/$name" "$dest" -- --depth 1 --quiet
+    else
+      gh repo clone "workers-world/$name" "$dest" -- --quiet
+    fi
+  else
+    if [[ "$shallow" == "shallow" ]]; then
+      git clone --depth 1 --quiet "https://github.com/workers-world/${name}.git" "$dest"
+    else
+      git clone --quiet "https://github.com/workers-world/${name}.git" "$dest"
+    fi
+  fi
+}
+
+cleanup_workdir() {
+  local dir="$1"
+  rm -rf "$dir"
+  trap - RETURN
+}
+
 pr_body() {
   local new_date="$1"
   cat <<EOF
@@ -311,7 +351,7 @@ EOF
 open_remote_pr() {
   local name="$1"
   local repo_dir="$2"
-  local file branch bump_branch eff new_date pr_url
+  local file branch bump_branch eff new_date pr_url current
   file="$(find_wrangler_config "$repo_dir" || true)"
   if [[ -z "$file" ]]; then
     echo "SKIP $name: 无 wrangler 配置" >&2
@@ -358,22 +398,26 @@ run_remote() {
   local name pr_line
   local -a pr_urls=()
   workdir="$(mktemp -d)"
-  trap 'rm -rf "$workdir"' RETURN
+  trap 'cleanup_workdir "$workdir"' RETURN
+
+  ensure_gh_git_auth
+  ensure_git_identity
 
   if [[ -n "$SINGLE_REPO" ]]; then
-    git clone --quiet "https://github.com/workers-world/${SINGLE_REPO}.git" "$workdir/$SINGLE_REPO"
+    clone_org_repo "$SINGLE_REPO" "$workdir/$SINGLE_REPO"
     pr_line="$(open_remote_pr "$SINGLE_REPO" "$workdir/$SINGLE_REPO" || true)"
     if [[ "$pr_line" == http* ]]; then
       pr_urls+=("$pr_line")
       pr_count=$((pr_count + 1))
     fi
     printf 'remote summary: pr=%s skip/fail=%s\n' "$pr_count" "$((skip_count + fail_count))"
+    cleanup_workdir "$workdir"
     return 0
   fi
 
   for name in $(gh repo list workers-world --json name --jq '.[].name' --limit 200); do
     is_excluded "$name" && continue
-    if ! git clone --quiet "https://github.com/workers-world/$name.git" "$workdir/$name" 2>/dev/null; then
+    if ! clone_org_repo "$name" "$workdir/$name" 2>/dev/null; then
       echo "FAIL $name: clone failed"
       fail_count=$((fail_count + 1))
       continue
@@ -393,6 +437,11 @@ run_remote() {
     printf 'PR URLs:\n'
     printf '%s\n' "${pr_urls[@]}"
   fi
+  cleanup_workdir "$workdir"
+  if [[ "$fail_count" -gt 0 ]]; then
+    return 1
+  fi
+  return 0
 }
 
 run_check_local() {
@@ -439,13 +488,16 @@ run_check_remote() {
   local workdir stale_count=0 repo_count=0
   local -a stale_lines=()
   workdir="$(mktemp -d)"
-  trap 'rm -rf "$workdir"' RETURN
+  trap 'cleanup_workdir "$workdir"' RETURN
   local threshold
   threshold="$(days_ago "$MAX_AGE_DAYS")"
 
+  ensure_gh_git_auth
+  ensure_git_identity
+
   for name in $(gh repo list workers-world --json name --jq '.[].name' --limit 200); do
     is_excluded "$name" && continue
-    git clone --depth 1 --quiet "https://github.com/workers-world/$name.git" "$workdir/$name" 2>/dev/null || {
+    clone_org_repo "$name" "$workdir/$name" shallow 2>/dev/null || {
       echo "SKIP $name: clone failed"
       continue
     }
@@ -471,6 +523,7 @@ $(printf '%s\n' "${stale_lines[@]}")" \
       >/dev/null
     echo "issue created (remote stale)"
   fi
+  cleanup_workdir "$workdir"
   [[ "$stale_count" -eq 0 ]]
 }
 
@@ -478,12 +531,12 @@ main() {
   echo "target_date=$TARGET_DATE min_date=$MIN_DATE mode=$MODE remote=$REMOTE dry_run=$DRY_RUN"
   if [[ "$MODE" == "apply" ]]; then
     if [[ "$REMOTE" -eq 1 ]]; then
-      run_remote
+      run_remote || exit $?
     else
       apply_local
       echo "local apply done"
     fi
-    return 0
+    exit 0
   fi
 
   local ok=0

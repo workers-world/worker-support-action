@@ -33,10 +33,17 @@ jobs:
       - name: Bump org workers and open PRs
         id: bump
         env:
-          GH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GHA_TOKEN }}
           TEMPLATES_ROOT: ${{ github.workspace }}/templates-src/templates
         run: |
           set -euo pipefail
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "::error::secrets.GHA_TOKEN is required to clone private workers-world repos and open PRs (GITHUB_TOKEN cannot access them in this job)." >&2
+            exit 1
+          fi
+          gh auth setup-git
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           args=(--remote --apply)
           if [[ -n "${{ inputs.target_date }}" ]]; then
             args+=(--date "${{ inputs.target_date }}")
