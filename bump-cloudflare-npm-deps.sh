@@ -39,7 +39,8 @@ usage() {
 
 环境:
   ALLOWLIST_FILE       白名单路径
-  GH_TOKEN             gh CLI / npm registry（公开包无需 token）
+  GH_TOKEN             gh CLI、clone 私有仓、开 PR（org PAT）
+  NODE_AUTH_TOKEN      GitHub Packages（通常与 GH_TOKEN 相同；见各仓 .npmrc）
 EOF
 }
 
@@ -115,6 +116,54 @@ resolve_release_branch() {
   return 1
 }
 
+ensure_gh_git_auth() {
+  if [[ -n "${GH_TOKEN:-}" ]] && command -v gh >/dev/null 2>&1; then
+    gh auth setup-git
+  fi
+}
+
+ensure_git_identity() {
+  if [[ -z "$(git config --get user.email 2>/dev/null || true)" ]]; then
+    git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+  fi
+  if [[ -z "$(git config --get user.name 2>/dev/null || true)" ]]; then
+    git config --global user.name "github-actions[bot]"
+  fi
+}
+
+ensure_npm_registry_auth() {
+  if [[ -n "${GH_TOKEN:-}" && -z "${NODE_AUTH_TOKEN:-}" ]]; then
+    export NODE_AUTH_TOKEN="$GH_TOKEN"
+  fi
+}
+
+clone_org_repo() {
+  local name="$1"
+  local dest="$2"
+  local shallow="${3:-}"
+  if command -v gh >/dev/null 2>&1 && [[ -n "${GH_TOKEN:-}" ]]; then
+    if [[ "$shallow" == "shallow" ]]; then
+      gh repo clone "workers-world/$name" "$dest" -- --depth 1 --quiet
+    else
+      gh repo clone "workers-world/$name" "$dest" -- --quiet
+    fi
+  else
+    if [[ "$shallow" == "shallow" ]]; then
+      git clone --depth 1 --quiet "https://github.com/workers-world/${name}.git" "$dest"
+    else
+      git clone --quiet "https://github.com/workers-world/${name}.git" "$dest"
+    fi
+  fi
+}
+
+cleanup_workdir() {
+  local dir="${1:-}"
+  if [[ -n "$dir" ]]; then
+    rm -rf "$dir"
+  fi
+  trap - RETURN
+}
+
 # 输出需升级项：每行 pkg|section|current|latest
 list_upgrades_for_repo() {
   local repo_dir="$1"
@@ -148,10 +197,12 @@ check_repo_dir() {
 
 pr_body() {
   local summary_text="$1"
+  local lockfile_note="${2:-}"
   cat <<EOF
 ## Summary
 - 将 Cloudflare 相关 npm 依赖升至 [npm latest](https://www.npmjs.com/)（见 \`cloudflare-npm-deps.allowlist\`）
 - 已按仓内现有 lockfile 工具更新 lockfile（如有）
+${lockfile_note}
 
 ## 升级项
 ${summary_text}
@@ -170,22 +221,35 @@ EOF
 
 update_lockfile() {
   local repo_dir="$1"
+  ensure_npm_registry_auth
   if [[ -f "$repo_dir/pnpm-lock.yaml" ]]; then
     (cd "$repo_dir" && corepack enable pnpm 2>/dev/null || true)
-    (cd "$repo_dir" && pnpm install --no-frozen-lockfile)
+    (cd "$repo_dir" && pnpm install --no-frozen-lockfile) || return 1
   elif [[ -f "$repo_dir/yarn.lock" ]]; then
     (cd "$repo_dir" && corepack enable yarn 2>/dev/null || true)
-    (cd "$repo_dir" && yarn install --mode update-lockfile 2>/dev/null || yarn install)
+    (cd "$repo_dir" && yarn install --mode update-lockfile 2>/dev/null || yarn install) || return 1
   elif [[ -f "$repo_dir/package-lock.json" ]] || [[ -f "$repo_dir/npm-shrinkwrap.json" ]]; then
     if ! (cd "$repo_dir" && npm install --package-lock-only --no-audit --no-fund); then
-      (cd "$repo_dir" && npm install --no-audit --no-fund)
+      (cd "$repo_dir" && npm install --no-audit --no-fund) || return 1
     fi
+  else
+    return 0
   fi
+  return 0
+}
+
+apply_package_json_upgrades() {
+  local repo_dir="$1"
+  local pkg
+  while IFS= read -r pkg; do
+    [[ -z "$pkg" ]] && continue
+    node "$ROOT/.bump-cloudflare-npm-deps-lib.mjs" apply-one "$repo_dir/package.json" "$pkg" || true
+  done < <(read_allowlist)
 }
 
 apply_upgrades_in_repo() {
   local repo_dir="$1"
-  local pkg line n=0
+  local n=0 lockfile_ok=1
   n="$(count_upgrades "$repo_dir")"
   [[ "$n" -eq 0 ]] && return 1
   if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -194,18 +258,21 @@ apply_upgrades_in_repo() {
     done
     return 0
   fi
-  while IFS= read -r pkg; do
-    [[ -z "$pkg" ]] && continue
-    node "$ROOT/.bump-cloudflare-npm-deps-lib.mjs" apply-one "$repo_dir/package.json" "$pkg" || true
-  done < <(read_allowlist)
-  update_lockfile "$repo_dir"
+  apply_package_json_upgrades "$repo_dir"
+  if ! update_lockfile "$repo_dir"; then
+    echo "WARN $(basename "$repo_dir"): lockfile 更新失败，将仅提交 package.json（需 NODE_AUTH_TOKEN / GitHub Packages）" >&2
+    lockfile_ok=0
+  fi
+  if [[ "$lockfile_ok" -eq 0 ]]; then
+    return 2
+  fi
   return 0
 }
 
 open_remote_pr() {
   local name="$1"
   local repo_dir="$2"
-  local branch bump_branch pr_url n today upgrade_summary=""
+  local branch bump_branch pr_url n today upgrade_summary="" lockfile_note=""
   n="$(count_upgrades "$repo_dir")"
   if [[ "$n" -eq 0 ]]; then
     echo "SKIP $name: 无待升级 Cloudflare npm 依赖" >&2
@@ -216,7 +283,7 @@ open_remote_pr() {
     upgrade_summary+="  - \`$pkg\` ($section): $cur → $lat"$'\n'
   done < <(list_upgrades_for_repo "$repo_dir")
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    apply_upgrades_in_repo "$repo_dir"
+    apply_upgrades_in_repo "$repo_dir" || true
     echo "DRY-RUN PR workers-world/$name ($n packages)" >&2
     return 0
   fi
@@ -232,29 +299,49 @@ open_remote_pr() {
   bump_branch="chore/bump-cloudflare-npm-deps-${today}"
   git -C "$repo_dir" fetch origin "$branch" --quiet
   git -C "$repo_dir" checkout -B "$bump_branch" "origin/$branch" --quiet
-  apply_upgrades_in_repo "$repo_dir"
+  apply_package_json_upgrades "$repo_dir"
+  if ! update_lockfile "$repo_dir"; then
+    echo "WARN $name: lockfile 更新失败，将仅提交 package.json" >&2
+    lockfile_note=$'- ⚠️ lockfile 未能自动刷新（常见原因：GitHub Packages 认证）；请合并后在本地运行 install 并补交 lockfile\n'
+  fi
   git -C "$repo_dir" add package.json
   [[ -f "$repo_dir/package-lock.json" ]] && git -C "$repo_dir" add package-lock.json
   [[ -f "$repo_dir/pnpm-lock.yaml" ]] && git -C "$repo_dir" add pnpm-lock.yaml
   [[ -f "$repo_dir/yarn.lock" ]] && git -C "$repo_dir" add yarn.lock
-  git -C "$repo_dir" commit -m "chore: bump Cloudflare npm deps to latest" --quiet
-  git -C "$repo_dir" push -u origin "$bump_branch" --quiet
+  if git -C "$repo_dir" diff --staged --quiet; then
+    echo "FAIL $name: bump 后无 staged 变更（install 可能失败且 package.json 未变）" >&2
+    git -C "$repo_dir" checkout -f "origin/$branch" --quiet 2>/dev/null || true
+    git -C "$repo_dir" branch -D "$bump_branch" 2>/dev/null || true
+    return 1
+  fi
+  if ! git -C "$repo_dir" commit -m "chore: bump Cloudflare npm deps to latest" --quiet; then
+    echo "FAIL $name: commit 失败" >&2
+    return 1
+  fi
+  if ! git -C "$repo_dir" push -u origin "$bump_branch" --quiet; then
+    echo "FAIL $name: push 失败" >&2
+    return 1
+  fi
   pr_url="$(gh pr create \
     --repo "workers-world/$name" \
     --base "$branch" \
     --head "$bump_branch" \
     --title "chore: bump Cloudflare npm deps to latest" \
-    --body "$(pr_body "$upgrade_summary")")"
+    --body "$(pr_body "$upgrade_summary" "$lockfile_note")")"
   echo "PR $name: $pr_url" >&2
   echo "$pr_url"
 }
 
 run_remote_apply() {
-  local workdir pr_count=0 skip_count=0 fail_count=0
+  local workdir="" pr_count=0 skip_count=0 fail_count=0
   local name pr_line
   local -a pr_urls=()
   workdir="$(mktemp -d)"
-  trap 'rm -rf "$workdir"' RETURN
+  trap "cleanup_workdir '${workdir}'" RETURN
+
+  ensure_gh_git_auth
+  ensure_git_identity
+  ensure_npm_registry_auth
 
   process_one() {
     local name="$1"
@@ -274,15 +361,16 @@ run_remote_apply() {
   }
 
   if [[ -n "$SINGLE_REPO" ]]; then
-    if ! git clone --quiet "https://github.com/workers-world/${SINGLE_REPO}.git" "$workdir/$SINGLE_REPO"; then
+    if ! clone_org_repo "$SINGLE_REPO" "$workdir/$SINGLE_REPO"; then
       echo "FAIL $SINGLE_REPO: clone failed"
+      cleanup_workdir "$workdir"
       exit 1
     fi
     process_one "$SINGLE_REPO"
   else
     for name in $(gh repo list workers-world --json name --jq '.[].name' --limit 200); do
       is_excluded "$name" && continue
-      if ! git clone --quiet "https://github.com/workers-world/$name.git" "$workdir/$name" 2>/dev/null; then
+      if ! clone_org_repo "$name" "$workdir/$name" 2>/dev/null; then
         echo "FAIL $name: clone failed"
         fail_count=$((fail_count + 1))
         continue
@@ -296,17 +384,24 @@ run_remote_apply() {
     printf 'PR URLs:\n'
     printf '%s\n' "${pr_urls[@]}"
   fi
+  cleanup_workdir "$workdir"
+  if [[ "$fail_count" -gt 0 ]]; then
+    return 1
+  fi
+  return 0
 }
 
 run_check_remote() {
-  local workdir stale_count=0 repo_count=0
+  local workdir="" stale_count=0 repo_count=0
   local -a stale_lines=()
   workdir="$(mktemp -d)"
-  trap 'rm -rf "$workdir"' RETURN
+  trap "cleanup_workdir '${workdir}'" RETURN
+
+  ensure_gh_git_auth
 
   for name in $(gh repo list workers-world --json name --jq '.[].name' --limit 200); do
     is_excluded "$name" && continue
-    git clone --depth 1 --quiet "https://github.com/workers-world/$name.git" "$workdir/$name" 2>/dev/null || {
+    clone_org_repo "$name" "$workdir/$name" shallow 2>/dev/null || {
       echo "SKIP $name: clone failed"
       continue
     }
@@ -334,6 +429,7 @@ $(printf '%s\n' "${stale_lines[@]}")" \
       >/dev/null
     echo "issue created (remote stale deps)"
   fi
+  cleanup_workdir "$workdir"
   [[ "$stale_count" -eq 0 ]]
 }
 
@@ -341,7 +437,7 @@ main() {
   echo "mode=$MODE remote=$REMOTE dry_run=$DRY_RUN allowlist=$ALLOWLIST_FILE"
   if [[ "$MODE" == "apply" ]]; then
     run_remote_apply
-    return 0
+    exit $?
   fi
   if [[ "$REMOTE" -eq 1 ]]; then
     run_check_remote
