@@ -16,6 +16,7 @@ Canonical 模板仍来自 [`workers-world/cloudflare_work`](https://github.com/w
 | 名称 | 说明 |
 |------|------|
 | `GHA_TOKEN` / `GITHUB_TOKEN` | `gh` CLI；org 扫描、clone、开 issue |
+| `GHA_TOKEN`（**bump-cloudflare-deps 必填**） | 私有仓 clone、GitHub Packages（`NODE_AUTH_TOKEN`）、开 PR；不可用 `GITHUB_TOKEN` 替代 |
 | `NOTIFY_WORKER_URL` | Org Variable |
 | `NOTIFY_GHA_TOKEN` | 发信（notify-worker 默认收件人） |
 
