@@ -137,6 +137,11 @@ ensure_npm_registry_auth() {
   fi
 }
 
+repo_is_archived() {
+  local name="$1"
+  [[ "$(gh repo view "workers-world/$name" --json isArchived -q .isArchived 2>/dev/null || echo false)" == "true" ]]
+}
+
 clone_org_repo() {
   local name="$1"
   local dest="$2"
@@ -224,13 +229,13 @@ update_lockfile() {
   ensure_npm_registry_auth
   if [[ -f "$repo_dir/pnpm-lock.yaml" ]]; then
     (cd "$repo_dir" && corepack enable pnpm 2>/dev/null || true)
-    (cd "$repo_dir" && pnpm install --no-frozen-lockfile) || return 1
+    (cd "$repo_dir" && pnpm install --no-frozen-lockfile >&2) || return 1
   elif [[ -f "$repo_dir/yarn.lock" ]]; then
     (cd "$repo_dir" && corepack enable yarn 2>/dev/null || true)
-    (cd "$repo_dir" && yarn install --mode update-lockfile 2>/dev/null || yarn install) || return 1
+    (cd "$repo_dir" && { yarn install --mode update-lockfile 2>/dev/null || yarn install; } >&2) || return 1
   elif [[ -f "$repo_dir/package-lock.json" ]] || [[ -f "$repo_dir/npm-shrinkwrap.json" ]]; then
-    if ! (cd "$repo_dir" && npm install --package-lock-only --no-audit --no-fund); then
-      (cd "$repo_dir" && npm install --no-audit --no-fund) || return 1
+    if ! (cd "$repo_dir" && npm install --package-lock-only --no-audit --no-fund >&2); then
+      (cd "$repo_dir" && npm install --no-audit --no-fund >&2) || return 1
     fi
   else
     return 0
@@ -278,6 +283,10 @@ open_remote_pr() {
     echo "SKIP $name: 无待升级 Cloudflare npm 依赖" >&2
     return 1
   fi
+  if repo_is_archived "$name"; then
+    echo "SKIP $name: archived 仓库无法开 PR" >&2
+    return 1
+  fi
   while IFS='|' read -r pkg section cur lat; do
     [[ -z "$pkg" ]] && continue
     upgrade_summary+="  - \`$pkg\` ($section): $cur → $lat"$'\n'
@@ -312,15 +321,20 @@ open_remote_pr() {
     echo "FAIL $name: bump 后无 staged 变更（install 可能失败且 package.json 未变）" >&2
     git -C "$repo_dir" checkout -f "origin/$branch" --quiet 2>/dev/null || true
     git -C "$repo_dir" branch -D "$bump_branch" 2>/dev/null || true
-    return 1
+    return 2
   fi
   if ! git -C "$repo_dir" commit -m "chore: bump Cloudflare npm deps to latest" --quiet; then
     echo "FAIL $name: commit 失败" >&2
-    return 1
+    return 2
   fi
-  if ! git -C "$repo_dir" push -u origin "$bump_branch" --quiet; then
-    echo "FAIL $name: push 失败" >&2
-    return 1
+  push_err=""
+  if ! push_err="$(git -C "$repo_dir" push -u origin "$bump_branch" 2>&1)"; then
+    if repo_is_archived "$name" || grep -qiE 'archived|Repository is archived' <<< "$push_err"; then
+      echo "SKIP $name: archived 仓库无法 push" >&2
+      return 1
+    fi
+    echo "FAIL $name: push 失败 — ${push_err}" >&2
+    return 2
   fi
   pr_url="$(gh pr create \
     --repo "workers-world/$name" \
@@ -329,7 +343,8 @@ open_remote_pr() {
     --title "chore: bump Cloudflare npm deps to latest" \
     --body "$(pr_body "$upgrade_summary" "$lockfile_note")")"
   echo "PR $name: $pr_url" >&2
-  echo "$pr_url"
+  printf 'PR_URL:%s\n' "$pr_url"
+  return 0
 }
 
 run_remote_apply() {
@@ -346,15 +361,18 @@ run_remote_apply() {
   process_one() {
     local name="$1"
     local dir="$workdir/$name"
+    local pr_line rc=0
     [[ ! -f "$dir/package.json" ]] && {
       echo "SKIP $name: 无 package.json" >&2
       skip_count=$((skip_count + 1))
       return 0
     }
-    pr_line="$(open_remote_pr "$name" "$dir" || true)"
-    if [[ "$pr_line" == http* ]]; then
-      pr_urls+=("$pr_line")
+    pr_line="$(open_remote_pr "$name" "$dir")" || rc=$?
+    if [[ "$rc" -eq 0 && "$pr_line" == PR_URL:http* ]]; then
+      pr_urls+=("${pr_line#PR_URL:}")
       pr_count=$((pr_count + 1))
+    elif [[ "$rc" -eq 2 ]]; then
+      fail_count=$((fail_count + 1))
     else
       skip_count=$((skip_count + 1))
     fi
