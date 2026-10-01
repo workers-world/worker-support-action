@@ -12,15 +12,53 @@ on:
         required: true
         type: string
 
+# 无 master 或 release 与 master 同 tip 时，gh pr create 会失败（空 diff / base ref）。
+# preflight 先 bootstrap 或短路为成功，仅在 release 领先 master 时才调用 worker-promote。
 jobs:
-  promote:
+  preflight:
+    runs-on: ubuntu-latest
     permissions: {}
     if: >
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push' &&
        startsWith(github.event.workflow_run.head_branch, 'dev_'))
-    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.2.3
+    outputs:
+      need_promote: ${{ steps.preflight.outputs.need_promote }}
+    steps:
+      - name: Preflight (bootstrap master / skip empty promote)
+        id: preflight
+        env:
+          GH_TOKEN: ${{ secrets.GHA_TOKEN }}
+          RELEASE_BRANCH: >-
+            ${{ github.event_name == 'workflow_dispatch' && inputs.release_branch || github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_REPOSITORY}"
+
+          if ! gh api "repos/${repo}/git/ref/heads/master" >/dev/null 2>&1; then
+            sha="$(gh api "repos/${repo}/git/ref/heads/${RELEASE_BRANCH}" --jq .object.sha)"
+            gh api "repos/${repo}/git/refs" -f ref="refs/heads/master" -f sha="${sha}"
+            echo "bootstrapped master at ${RELEASE_BRANCH} tip (${sha})"
+            echo "need_promote=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          ahead="$(gh api "repos/${repo}/compare/master...${RELEASE_BRANCH}" --jq .ahead_by)"
+          if [[ "${ahead}" == "0" ]]; then
+            echo "already in sync (master...${RELEASE_BRANCH} ahead_by=0); skip PR promote"
+            echo "need_promote=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "release ${RELEASE_BRANCH} is ${ahead} commit(s) ahead of master; will promote"
+          echo "need_promote=true" >> "$GITHUB_OUTPUT"
+
+  promote:
+    needs: preflight
+    permissions: {}
+    if: needs.preflight.outputs.need_promote == 'true'
+    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.2.9
     with:
       release_branch: ${{ github.event_name == 'workflow_dispatch' && inputs.release_branch || github.event.workflow_run.head_branch }}
     secrets: inherit
