@@ -4,7 +4,7 @@ name: Bump Cloudflare npm deps
 
 on:
   schedule:
-    - cron: "0 5 1 * *"   # 每月 1 日 05:00 UTC（与 bump-compat-date 同月历节奏）
+    - cron: "0 5 * * 1"   # 每周一 05:00 UTC
   workflow_dispatch:
     inputs:
       repo:

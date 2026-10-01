@@ -5,7 +5,7 @@
 | Workflow | 频率 | 作用 |
 |----------|------|------|
 | [bump-compat-date.yml](.github/workflows/bump-compat-date.yml) | 每月 1 日 | 批量抬升各 Worker `compatibility_date` 并开 PR |
-| [bump-cloudflare-deps.yml](.github/workflows/bump-cloudflare-deps.yml) | 每月 1 日 | 将 org 各仓 Cloudflare 相关 npm 依赖升至 `latest` 并开 PR（WW-49） |
+| [bump-cloudflare-deps.yml](.github/workflows/bump-cloudflare-deps.yml) | 每周一 | 将 org 各仓 Cloudflare 相关 npm 依赖升至 `latest` 并开 PR（WW-49） |
 | [config-drift.yml](.github/workflows/config-drift.yml) | 每周一 | biome/npmrc/.github 漂移 + compat 过期检测，本仓开 issue |
 | [secret-scan.yml](.github/workflows/secret-scan.yml) | 每周二 | gitleaks 全历史扫描 **public** 仓，有发现时脱敏发信 + artifact |
 
