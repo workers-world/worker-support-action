@@ -61,12 +61,28 @@ jobs:
           NOTIFY_WORKER_URL: ${{ vars.NOTIFY_WORKER_URL }}
           NOTIFY_AUTH_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}
 
+      - name: Prepare notify summary body
+        id: notify_summary
+        if: success()
+        run: |
+          set -euo pipefail
+          delim="notify_body_${RANDOM}_${RANDOM}_${RANDOM}"
+          {
+            printf 'body<<%s\n' "$delim"
+            if [[ -f config-drift.log ]]; then
+              tail -120 config-drift.log
+            else
+              echo '(config-drift.log missing — see Actions run log and Summary step)'
+            fi
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Notify summary
         if: success()
         uses: workers-world/action-notify-email@v1
         with:
           subject: "worker-support: config-drift 完成"
-          body-file: config-drift.log
+          body: ${{ steps.notify_summary.outputs.body }}
           dedup-key: config-drift-ok-${{ github.run_id }}
           fail-on-error: false
         env:

@@ -9,6 +9,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=resolve-release-branch.sh
+source "$ROOT/resolve-release-branch.sh"
 ALLOWLIST_FILE="${ALLOWLIST_FILE:-$ROOT/cloudflare-npm-deps.allowlist}"
 ISSUE_REPO="${ISSUE_REPO:-workers-world/worker-support-action}"
 
@@ -85,34 +87,6 @@ is_excluded() {
   for e in "${EXCLUDE[@]}"; do
     [[ "$name" == "$e" ]] && return 0
   done
-  return 1
-}
-
-resolve_release_branch() {
-  local repo_dir="$1"
-  local branch=""
-  if [[ -f "$repo_dir/.github/RELEASE_BRANCH" ]]; then
-    branch="$(tr -d '[:space:]' < "$repo_dir/.github/RELEASE_BRANCH")"
-    if [[ -n "$branch" ]]; then
-      echo "$branch"
-      return 0
-    fi
-  fi
-  branch="$(git -C "$repo_dir" ls-remote --heads origin 'dev_*' 2>/dev/null \
-    | awk -F/ '{print $NF}' \
-    | sort -t_ -k2,2n -k3,3n -k4,4n \
-    | tail -1 || true)"
-  if [[ -z "$branch" ]]; then
-    branch="$(git -C "$repo_dir" branch -a 2>/dev/null \
-      | sed 's/^[* ]*//;s|remotes/origin/||' \
-      | grep -E '^dev_[0-9]+_[0-9]+_[0-9]+$' \
-      | sort -t_ -k2,2n -k3,3n -k4,4n \
-      | tail -1 || true)"
-  fi
-  if [[ -n "$branch" ]]; then
-    echo "$branch"
-    return 0
-  fi
   return 1
 }
 
