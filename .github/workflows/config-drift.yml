@@ -14,10 +14,10 @@ jobs:
   drift-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Checkout worker templates (canonical)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: workers-world/cloudflare_work
           path: templates-src
