@@ -30,8 +30,12 @@ jobs:
           bash -n check-config-drift-remote.sh
           bash -n scan-secrets.sh
           python3 -m py_compile scan-secrets.py
+          python3 -m py_compile clean-stale-pr-branches.py
+          test -f pr-branch-cleanup.allowlist
+          test -f exclude-pr-branch-cleanup.txt
           test -f .github/workflows/bump-compat-date.yml
           test -f .github/workflows/bump-cloudflare-deps.yml
           test -f .github/workflows/config-drift.yml
           test -f .github/workflows/secret-scan.yml
+          test -f .github/workflows/clean-stale-pr-branches.yml
           test -f gitleaks.toml

@@ -1,0 +1,123 @@
+# 定期扫描 workers-world org，删除已合并 PR 残留 head，以及 closed≥30 天未合并 head（WW-147 · #18）
+# 定时真删：本仓 Repository variable PR_BRANCH_CLEANUP_LIVE=true（非 org variable）
+name: Clean stale PR branches
+
+on:
+  schedule:
+    - cron: "30 4 * * 1"   # 每周一 04:30 UTC（在 bump/deps 之前）
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "仅列出将删除的分支，不调用 DELETE"
+        required: false
+        type: boolean
+        default: true
+      include_stale_closed:
+        description: "同时处理 closed≥stale_closed_days 且未合并的 PR head（默认开）"
+        required: false
+        type: boolean
+        default: true
+      repo:
+        description: "仅处理单个仓（短名或 owner/name；留空则全 org）"
+        required: false
+        type: string
+      exclude_repos:
+        description: "额外排除仓（逗号分隔短名，叠加 exclude-pr-branch-cleanup.txt）"
+        required: false
+        type: string
+      extra_allowlist:
+        description: "额外永不删除分支 glob（逗号分隔，叠加 pr-branch-cleanup.allowlist）"
+        required: false
+        type: string
+      stale_closed_days:
+        description: "include_stale_closed 时，closed 至少多少天"
+        required: false
+        type: string
+        default: "30"
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Clean merged PR head branches (org scan)
+        id: cleanup
+        env:
+          GH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          INPUT_ORG: workers-world
+          INPUT_REPO: ${{ inputs.repo || '' }}
+          INPUT_INCLUDE_STALE_CLOSED: ${{ github.event_name == 'workflow_dispatch' && (inputs.include_stale_closed && 'true' || 'false') || 'true' }}
+          INPUT_EXCLUDE_REPOS: ${{ inputs.exclude_repos || '' }}
+          INPUT_EXTRA_ALLOWLIST: ${{ inputs.extra_allowlist || '' }}
+          INPUT_STALE_CLOSED_DAYS: ${{ inputs.stale_closed_days || '30' }}
+          INPUT_DRY_RUN: >-
+            ${{
+              github.event_name == 'workflow_dispatch'
+              && (inputs.dry_run && 'true' || 'false')
+              || (vars.PR_BRANCH_CLEANUP_LIVE == 'true' && 'false' || 'true')
+            }}
+        run: |
+          set +e
+          python3 clean-stale-pr-branches.py | tee pr-branch-cleanup.log
+          code=$?
+          set -e
+          if [[ ! -f .pr-branch-cleanup-meta.json ]]; then
+            echo "::error::missing .pr-branch-cleanup-meta.json" >&2
+            exit 1
+          fi
+          exit "$code"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## clean-stale-pr-branches summary" >> "$GITHUB_STEP_SUMMARY"
+          if [[ -f pr-branch-cleanup-report.md ]]; then
+            echo '```markdown' >> "$GITHUB_STEP_SUMMARY"
+            head -120 pr-branch-cleanup-report.md >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [[ -f .pr-branch-cleanup-meta.json ]]; then
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat .pr-branch-cleanup-meta.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload report
+        if: always() && hashFiles('pr-branch-cleanup-report.md') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-branch-cleanup-${{ github.run_id }}
+          path: |
+            pr-branch-cleanup-report.md
+            .pr-branch-cleanup-meta.json
+          if-no-files-found: ignore
+
+      - name: Notify on failure
+        if: failure()
+        uses: workers-world/action-notify-email@v1
+        with:
+          subject: "worker-support: clean-stale-pr-branches 失败"
+          body: |
+            Workflow: ${{ github.workflow }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          dedup-key: clean-stale-pr-branches-fail-${{ github.run_id }}
+          fail-on-error: false
+        env:
+          NOTIFY_WORKER_URL: ${{ vars.NOTIFY_WORKER_URL }}
+          NOTIFY_AUTH_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}
+
+      - name: Notify summary
+        if: success()
+        uses: workers-world/action-notify-email@v1
+        with:
+          subject: "worker-support: clean-stale-pr-branches 完成"
+          body-file: pr-branch-cleanup-report.md
+          dedup-key: clean-stale-pr-branches-ok-${{ github.run_id }}
+          fail-on-error: false
+        env:
+          NOTIFY_WORKER_URL: ${{ vars.NOTIFY_WORKER_URL }}
+          NOTIFY_AUTH_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}
