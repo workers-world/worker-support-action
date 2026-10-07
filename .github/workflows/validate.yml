@@ -18,6 +18,9 @@ jobs:
           set -euo pipefail
           test -x bump-worker-compat-date.sh
           test -x bump-cloudflare-npm-deps.sh
+          test -f resolve-release-branch.sh
+          bash -n resolve-release-branch.sh
+          bash test-resolve-release-branch.sh
           test -f cloudflare-npm-deps.allowlist
           test -f .bump-cloudflare-npm-deps-lib.mjs
           test -f check-config-drift-remote.sh
