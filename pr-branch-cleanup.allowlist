@@ -1,5 +1,6 @@
 # PR 头分支清理：永不删除的分支名或 glob（fnmatch，* 匹配任意字符）
 # 默认覆盖 dev_*、release/*、master、main、gh-pages
+# 故意不包含 cursor/* 等 agent 分支：符合条件时可删除
 main
 master
 gh-pages

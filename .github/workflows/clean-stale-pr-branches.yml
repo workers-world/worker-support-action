@@ -1,4 +1,5 @@
-# 定期扫描 workers-world org，删除已合并 PR 仍残留的同仓 head 分支（WW-147 · #18）
+# 定期扫描 workers-world org，删除已合并 PR 残留 head，以及 closed≥30 天未合并 head（WW-147 · #18）
+# 定时真删：本仓 Repository variable PR_BRANCH_CLEANUP_LIVE=true（非 org variable）
 name: Clean stale PR branches
 
 on:
@@ -12,10 +13,10 @@ on:
         type: boolean
         default: true
       include_stale_closed:
-        description: "同时处理长期未合并且已关闭的 PR head（默认关）"
+        description: "同时处理 closed≥stale_closed_days 且未合并的 PR head（默认开）"
         required: false
         type: boolean
-        default: false
+        default: true
       repo:
         description: "仅处理单个仓（短名或 owner/name；留空则全 org）"
         required: false
@@ -49,7 +50,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
           INPUT_ORG: workers-world
           INPUT_REPO: ${{ inputs.repo || '' }}
-          INPUT_INCLUDE_STALE_CLOSED: ${{ github.event_name == 'workflow_dispatch' && inputs.include_stale_closed || 'false' }}
+          INPUT_INCLUDE_STALE_CLOSED: ${{ github.event_name == 'workflow_dispatch' && (inputs.include_stale_closed && 'true' || 'false') || 'true' }}
           INPUT_EXCLUDE_REPOS: ${{ inputs.exclude_repos || '' }}
           INPUT_EXTRA_ALLOWLIST: ${{ inputs.extra_allowlist || '' }}
           INPUT_STALE_CLOSED_DAYS: ${{ inputs.stale_closed_days || '30' }}

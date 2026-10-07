@@ -319,7 +319,7 @@ def main() -> int:
     org = os.environ.get("INPUT_ORG", "workers-world").strip()
     single_repo = os.environ.get("INPUT_REPO", "").strip()
     dry_run = env_bool("INPUT_DRY_RUN", True)
-    include_stale_closed = env_bool("INPUT_INCLUDE_STALE_CLOSED", False)
+    include_stale_closed = env_bool("INPUT_INCLUDE_STALE_CLOSED", True)
     exclude_archived = env_bool("INPUT_EXCLUDE_ARCHIVED", True)
     exclude_forks = env_bool("INPUT_EXCLUDE_FORKS", True)
     exclude_disabled = env_bool("INPUT_EXCLUDE_DISABLED", True)
