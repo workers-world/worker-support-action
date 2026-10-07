@@ -1,0 +1,7 @@
+# workers-world org PR 分支清理排除仓（短名，与 secret scan 对齐）
+cloudflare-os
+docs-site
+r2-image-transform-worker
+aws_hub_to_r2_worker
+cloudflare-docs
+framework_sdk_worker

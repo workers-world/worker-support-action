@@ -8,6 +8,7 @@
 | [bump-cloudflare-deps.yml](.github/workflows/bump-cloudflare-deps.yml) | 每周一 | 将 org 各仓 Cloudflare 相关 npm 依赖升至 `latest` 并开 PR（WW-49） |
 | [config-drift.yml](.github/workflows/config-drift.yml) | 每周一 | biome/npmrc/.github 漂移 + compat 过期检测，本仓开 issue |
 | [secret-scan.yml](.github/workflows/secret-scan.yml) | 每周二 | gitleaks 全历史扫描 **public** 仓，有发现时脱敏发信 + artifact |
+| [clean-stale-pr-branches.yml](.github/workflows/clean-stale-pr-branches.yml) | 每周一 | 删除 org 各仓已合并 PR 残留 head 分支（WW-147；默认 dry-run） |
 
 Canonical 模板仍来自 [`workers-world/cloudflare_work`](https://github.com/workers-world/cloudflare_work) 的 `templates/`（drift/bump workflow 内 sparse checkout）。
 
@@ -17,6 +18,8 @@ Canonical 模板仍来自 [`workers-world/cloudflare_work`](https://github.com/w
 |------|------|
 | `GHA_TOKEN` / `GITHUB_TOKEN` | `gh` CLI；org 扫描、clone、开 issue |
 | `GHA_TOKEN`（**bump-cloudflare-deps 必填**） | 私有仓 clone、GitHub Packages（`NODE_AUTH_TOKEN`）、开 PR；不可用 `GITHUB_TOKEN` 替代 |
+| `GHA_TOKEN`（**clean-stale-pr-branches 删分支**） | 读 PR/分支元数据并 `DELETE` ref；需 **Contents: Read and write**（classic `repo` 或等价 fine-grained） |
+| Org Variable `PR_BRANCH_CLEANUP_LIVE` | 设为 `true` 时，**定时**任务才真正删分支；否则 cron 仍为 dry-run |
 | `NOTIFY_WORKER_URL` | Org Variable |
 | `NOTIFY_GHA_TOKEN` | 发信（notify-worker 默认收件人） |
 
@@ -28,6 +31,7 @@ Canonical 模板仍来自 [`workers-world/cloudflare_work`](https://github.com/w
 | [bump-cloudflare-npm-deps.sh](bump-cloudflare-npm-deps.sh) | `--check --remote` / `--remote --apply`；白名单 [cloudflare-npm-deps.allowlist](cloudflare-npm-deps.allowlist) |
 | [check-config-drift-remote.sh](check-config-drift-remote.sh) | 远程 org 漂移检查 |
 | [scan-secrets.py](scan-secrets.py) | gitleaks org/单仓扫描（默认 public、全历史） |
+| [clean-stale-pr-branches.py](clean-stale-pr-branches.py) | 扫描 org 已合并 PR 残留 head；白名单 [pr-branch-cleanup.allowlist](pr-branch-cleanup.allowlist) |
 
 环境变量（drift/bump）：
 
