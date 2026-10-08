@@ -48,7 +48,7 @@ jobs:
           if [[ -n "${{ inputs.target_date }}" ]]; then
             args+=(--date "${{ inputs.target_date }}")
           fi
-          bash bump-worker-compat-date.sh "${args[@]}" | tee bump-compat-date.log
+          bash bump-compat-date/bump-worker-compat-date.sh "${args[@]}" | tee bump-compat-date.log
 
       - name: Summary
         if: always()

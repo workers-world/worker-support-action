@@ -3,8 +3,9 @@
 # 本地日常检查用 sync-worker-configs.sh --check（共置目录，无需 clone）。
 # 漂移仓输出表格，并在 meta 仓开 issue 报告。CI 或本地均可运行（需 gh 与网络）。
 set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TEMPLATES_ROOT="${TEMPLATES_ROOT:-$ROOT/templates}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TEMPLATES_ROOT="${TEMPLATES_ROOT:-$REPO_ROOT/templates}"
 ISSUE_REPO="${ISSUE_REPO:-workers-world/worker-support-action}"
 TPL="$TEMPLATES_ROOT/worker"
 WORKDIR="$(mktemp -d)"
