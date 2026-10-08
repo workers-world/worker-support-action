@@ -2,3 +2,7 @@
 # One package name per line; blank lines and # comments are ignored.
 wrangler
 @cloudflare/workers-types
+@vitest/coverage-v8
+vitest
+vite
+@vitejs/plugin-react
