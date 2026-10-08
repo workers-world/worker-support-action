@@ -16,26 +16,26 @@ jobs:
       - name: Check scripts and workflows
         run: |
           set -euo pipefail
-          test -x bump-worker-compat-date.sh
-          test -x bump-cloudflare-npm-deps.sh
-          test -f resolve-release-branch.sh
-          bash -n resolve-release-branch.sh
-          bash test-resolve-release-branch.sh
-          test -f cloudflare-npm-deps.allowlist
-          test -f .bump-cloudflare-npm-deps-lib.mjs
-          test -f check-config-drift-remote.sh
-          test -x scan-secrets.sh
-          bash -n bump-worker-compat-date.sh
-          bash -n bump-cloudflare-npm-deps.sh
-          bash -n check-config-drift-remote.sh
-          bash -n scan-secrets.sh
-          python3 -m py_compile scan-secrets.py
-          python3 -m py_compile clean-stale-pr-branches.py
-          test -f pr-branch-cleanup.allowlist
-          test -f exclude-pr-branch-cleanup.txt
+          test -x bump-compat-date/bump-worker-compat-date.sh
+          test -x bump-cloudflare-dependencies/bump-cloudflare-npm-deps.sh
+          test -f release/resolve-release-branch.sh
+          bash -n release/resolve-release-branch.sh
+          bash release/test-resolve-release-branch.sh
+          test -f bump-cloudflare-dependencies/cloudflare-npm-deps.allowlist
+          test -f bump-cloudflare-dependencies/.bump-cloudflare-npm-deps-lib.mjs
+          test -f config-drift-check/check-config-drift-remote.sh
+          test -x secret-scan/scan-secrets.sh
+          bash -n bump-compat-date/bump-worker-compat-date.sh
+          bash -n bump-cloudflare-dependencies/bump-cloudflare-npm-deps.sh
+          bash -n config-drift-check/check-config-drift-remote.sh
+          bash -n secret-scan/scan-secrets.sh
+          python3 -m py_compile secret-scan/scan-secrets.py
+          python3 -m py_compile pr-branch-cleanup/clean-stale-pr-branches.py
+          test -f pr-branch-cleanup/pr-branch-cleanup.allowlist
+          test -f pr-branch-cleanup/exclude-pr-branch-cleanup.txt
           test -f .github/workflows/bump-compat-date.yml
           test -f .github/workflows/bump-cloudflare-deps.yml
           test -f .github/workflows/config-drift.yml
           test -f .github/workflows/secret-scan.yml
           test -f .github/workflows/clean-stale-pr-branches.yml
-          test -f gitleaks.toml
+          test -f secret-scan/gitleaks.toml

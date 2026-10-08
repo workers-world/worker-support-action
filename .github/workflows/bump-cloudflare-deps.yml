@@ -55,7 +55,7 @@ jobs:
           if [[ "${{ inputs.dry_run }}" == "true" ]]; then
             args+=(--dry-run)
           fi
-          bash bump-cloudflare-npm-deps.sh "${args[@]}" | tee bump-cloudflare-deps.log
+          bash bump-cloudflare-dependencies/bump-cloudflare-npm-deps.sh "${args[@]}" | tee bump-cloudflare-deps.log
 
       - name: Summary
         if: always()
