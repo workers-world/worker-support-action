@@ -29,13 +29,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
           TEMPLATES_ROOT: ${{ github.workspace }}/templates-src/templates
-        run: bash check-config-drift-remote.sh | tee config-drift.log
+        run: bash config-drift-check/check-config-drift-remote.sh | tee config-drift.log
 
       - name: Check stale compatibility_date (remote org repos)
         env:
           GH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
           TEMPLATES_ROOT: ${{ github.workspace }}/templates-src/templates
-        run: bash bump-worker-compat-date.sh --check --max-age-days 30 --remote --create-issue | tee -a config-drift.log
+        run: bash bump-compat-date/bump-worker-compat-date.sh --check --max-age-days 30 --remote --create-issue | tee -a config-drift.log
 
       - name: Summary
         if: always()

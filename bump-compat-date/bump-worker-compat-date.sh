@@ -8,10 +8,12 @@
 # 环境：--remote 开 PR 需 gh + GH_TOKEN（PAT repo）。
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=resolve-release-branch.sh
-source "$ROOT/resolve-release-branch.sh"
-TEMPLATES_ROOT="${TEMPLATES_ROOT:-$ROOT/templates}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-$REPO_ROOT}"
+# shellcheck source=../release/resolve-release-branch.sh
+source "$REPO_ROOT/release/resolve-release-branch.sh"
+TEMPLATES_ROOT="${TEMPLATES_ROOT:-$REPO_ROOT/templates}"
 ISSUE_REPO="${ISSUE_REPO:-workers-world/worker-support-action}"
 TPL_WRANGLER="$TEMPLATES_ROOT/worker/wrangler.example.toml"
 OVERRIDES_FILE="$TEMPLATES_ROOT/github/worker-ci-overrides.yaml"
@@ -241,7 +243,7 @@ check_worker_dir() {
   fi
   eff="$(effective_target_date "$name")"
   if [[ "$current" < "$threshold" ]]; then
-    echo "STALE $name: $current < $threshold (file: ${file#"$ROOT"/})"
+    echo "STALE $name: $current < $threshold (file: ${file#"$WORKSPACE_ROOT"/})"
     stale=1
   fi
   if [[ "$current" < "$eff" && "$MODE" == "check" ]]; then
@@ -252,7 +254,7 @@ check_worker_dir() {
 
 apply_local() {
   local dir w file
-  for dir in "$ROOT"/*/; do
+  for dir in "$WORKSPACE_ROOT"/*/; do
     w="$(basename "$dir")"
     is_local_excluded "$w" && continue
     [[ ! -f "$dir/package.json" ]] && continue
@@ -423,7 +425,7 @@ run_check_local() {
   local dir w threshold
   local -a stale_lines=()
   threshold="$(days_ago "$MAX_AGE_DAYS")"
-  for dir in "$ROOT"/*/; do
+  for dir in "$WORKSPACE_ROOT"/*/; do
     w="$(basename "$dir")"
     is_local_excluded "$w" && continue
     [[ ! -f "$dir/package.json" ]] && continue
@@ -448,7 +450,7 @@ run_check_local() {
     gh issue create \
       --repo "$ISSUE_REPO" \
       --title "compat_date 过期：${stale_count} 个本地路径" \
-      --body "运行 \`./bump-worker-compat-date.sh --apply\` 或 workflow_dispatch [bump-compat-date.yml](https://github.com/${ISSUE_REPO}/actions/workflows/bump-compat-date.yml)。
+      --body "运行 \`bump-compat-date/bump-worker-compat-date.sh --apply\` 或 workflow_dispatch [bump-compat-date.yml](https://github.com/${ISSUE_REPO}/actions/workflows/bump-compat-date.yml)。
 
 过期清单（本地共置）：
 $(printf '%s\n' "${stale_lines[@]}")" \
@@ -490,7 +492,7 @@ run_check_remote() {
     gh issue create \
       --repo "$ISSUE_REPO" \
       --title "compat_date 过期：${stale_count} 个仓" \
-      --body "修复：\`workflow_dispatch\` 触发 [bump-compat-date.yml](https://github.com/${ISSUE_REPO}/actions/workflows/bump-compat-date.yml)，或 \`./bump-worker-compat-date.sh --remote --apply\`。
+      --body "修复：\`workflow_dispatch\` 触发 [bump-compat-date.yml](https://github.com/${ISSUE_REPO}/actions/workflows/bump-compat-date.yml)，或 \`bump-compat-date/bump-worker-compat-date.sh --remote --apply\`。
 
 过期清单：
 $(printf '%s\n' "${stale_lines[@]}")" \

@@ -8,10 +8,11 @@
 # 环境：--remote 开 PR 需 gh + GH_TOKEN（PAT repo）。
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=resolve-release-branch.sh
-source "$ROOT/resolve-release-branch.sh"
-ALLOWLIST_FILE="${ALLOWLIST_FILE:-$ROOT/cloudflare-npm-deps.allowlist}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../release/resolve-release-branch.sh
+source "$REPO_ROOT/release/resolve-release-branch.sh"
+ALLOWLIST_FILE="${ALLOWLIST_FILE:-$SCRIPT_DIR/cloudflare-npm-deps.allowlist}"
 ISSUE_REPO="${ISSUE_REPO:-workers-world/worker-support-action}"
 
 EXCLUDE=(cloudflare-os docs-site r2-image-transform-worker aws_hub_to_r2_worker cloudflare-docs framework_sdk_worker)
@@ -152,7 +153,7 @@ list_upgrades_for_repo() {
   fi
   while IFS= read -r pkg; do
     [[ -z "$pkg" ]] && continue
-    node "$ROOT/.bump-cloudflare-npm-deps-lib.mjs" list-one "$repo_dir/package.json" "$pkg" 2>/dev/null || true
+    node "$SCRIPT_DIR/.bump-cloudflare-npm-deps-lib.mjs" list-one "$repo_dir/package.json" "$pkg" 2>/dev/null || true
   done < <(read_allowlist)
 }
 
@@ -222,7 +223,7 @@ apply_package_json_upgrades() {
   local pkg
   while IFS= read -r pkg; do
     [[ -z "$pkg" ]] && continue
-    node "$ROOT/.bump-cloudflare-npm-deps-lib.mjs" apply-one "$repo_dir/package.json" "$pkg" || true
+    node "$SCRIPT_DIR/.bump-cloudflare-npm-deps-lib.mjs" apply-one "$repo_dir/package.json" "$pkg" || true
   done < <(read_allowlist)
 }
 
@@ -414,7 +415,7 @@ run_check_remote() {
     gh issue create \
       --repo "$ISSUE_REPO" \
       --title "Cloudflare npm 依赖可升级：${stale_count} 个仓" \
-      --body "修复：\`workflow_dispatch\` 触发 [bump-cloudflare-deps.yml](https://github.com/${ISSUE_REPO}/actions/workflows/bump-cloudflare-deps.yml)，或 \`./bump-cloudflare-npm-deps.sh --remote --apply\`。
+      --body "修复：\`workflow_dispatch\` 触发 [bump-cloudflare-deps.yml](https://github.com/${ISSUE_REPO}/actions/workflows/bump-cloudflare-deps.yml)，或 \`bump-cloudflare-dependencies/bump-cloudflare-npm-deps.sh --remote --apply\`。
 
 待升级清单：
 $(printf '%s\n' "${stale_lines[@]}")" \

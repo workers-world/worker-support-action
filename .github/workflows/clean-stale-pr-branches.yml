@@ -62,7 +62,7 @@ jobs:
             }}
         run: |
           set +e
-          python3 clean-stale-pr-branches.py | tee pr-branch-cleanup.log
+          python3 pr-branch-cleanup/clean-stale-pr-branches.py | tee pr-branch-cleanup.log
           code=$?
           set -e
           if [[ ! -f .pr-branch-cleanup-meta.json ]]; then

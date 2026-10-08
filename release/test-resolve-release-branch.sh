@@ -2,9 +2,9 @@
 # Unit tests for resolve-release-branch.sh (local bare repos, no network).
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=resolve-release-branch.sh
-source "$ROOT/resolve-release-branch.sh"
+source "$SCRIPT_DIR/resolve-release-branch.sh"
 
 tmpdir=""
 cleanup() {

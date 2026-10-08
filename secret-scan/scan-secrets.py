@@ -246,7 +246,9 @@ def main() -> int:
     org = os.environ.get("INPUT_ORG", "")
     repo = os.environ.get("INPUT_REPO", "")
     visibility = os.environ.get("INPUT_VISIBILITY", "public")
-    exclude_file = os.environ.get("INPUT_EXCLUDE_FILE", "")
+    exclude_file = os.environ.get("INPUT_EXCLUDE_FILE", "").strip()
+    if not exclude_file:
+        exclude_file = str(root / "exclude-secrets.txt")
     exclude_csv = os.environ.get("INPUT_EXCLUDE", "")
     json_out = os.environ.get("INPUT_JSON_OUT", "secrets-scan.json")
     md_out = os.environ.get("INPUT_MD_OUT", "secrets-scan.md")
