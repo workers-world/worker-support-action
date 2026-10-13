@@ -5,7 +5,7 @@
 | Workflow | 频率 | 作用 |
 |----------|------|------|
 | [bump-compat-date.yml](.github/workflows/bump-compat-date.yml) | 每月 1 日 | 批量抬升各 Worker `compatibility_date` 并开 PR |
-| [bump-cloudflare-deps.yml](.github/workflows/bump-cloudflare-deps.yml) | 每周一 | 将 org 各仓 Cloudflare 相关 npm 依赖升至 `latest` 并开 PR（WW-49） |
+| [bump-cloudflare-deps.yml](.github/workflows/bump-cloudflare-deps.yml) | 每周一 | peer / lock / ci 兼容闸后升级 Cloudflare npm 依赖并开 PR（WW-239, WW-49） |
 | [config-drift.yml](.github/workflows/config-drift.yml) | 每周一 | biome/npmrc/.github 漂移 + compat 过期检测，本仓开 issue |
 | [secret-scan.yml](.github/workflows/secret-scan.yml) | 每周二 | gitleaks 全历史扫描 **public** 仓，有发现时脱敏发信 + artifact |
 | [clean-stale-pr-branches.yml](.github/workflows/clean-stale-pr-branches.yml) | 每周一 | 删除 org 已合并 + closed≥30d 未合并 PR head（WW-147；cron 默认 dry-run） |
@@ -17,7 +17,7 @@ Canonical 模板仍来自 [`workers-world/cloudflare_work`](https://github.com/w
 | 目录 | 内容 |
 |------|------|
 | [bump-compat-date/](bump-compat-date/) | `compatibility_date` 批量升级 |
-| [bump-cloudflare-dependencies/](bump-cloudflare-dependencies/) | Cloudflare npm 依赖升级 |
+| [bump-cloudflare-dependencies/](bump-cloudflare-dependencies/) | Cloudflare npm 依赖升级（peer-aware vitest / pool-workers，开 PR 前 lock + smoke） |
 | [config-drift-check/](config-drift-check/) | 远程 org 配置漂移检查 |
 | [secret-scan/](secret-scan/) | gitleaks org/单仓扫描 |
 | [pr-branch-cleanup/](pr-branch-cleanup/) | 已合并/陈旧 PR 分支清理 |
@@ -39,10 +39,17 @@ Canonical 模板仍来自 [`workers-world/cloudflare_work`](https://github.com/w
 | 脚本 | 说明 |
 |------|------|
 | [bump-worker-compat-date.sh](bump-compat-date/bump-worker-compat-date.sh) | `--check` / `--apply` / `--remote --apply` |
-| [bump-cloudflare-npm-deps.sh](bump-cloudflare-dependencies/bump-cloudflare-npm-deps.sh) | `--check --remote` / `--remote --apply`；白名单 [cloudflare-npm-deps.allowlist](bump-cloudflare-dependencies/cloudflare-npm-deps.allowlist) |
+| [bump-cloudflare-npm-deps.sh](bump-cloudflare-dependencies/bump-cloudflare-npm-deps.sh) | `--check --remote` / `--remote --apply`；白名单 [cloudflare-npm-deps.allowlist](bump-cloudflare-dependencies/cloudflare-npm-deps.allowlist)（vitest 等跟 `@cloudflare/vitest-pool-workers` peer） |
 | [check-config-drift-remote.sh](config-drift-check/check-config-drift-remote.sh) | 远程 org 漂移检查 |
 | [scan-secrets.py](secret-scan/scan-secrets.py) | gitleaks org/单仓扫描（默认 public、全历史） |
 | [clean-stale-pr-branches.py](pr-branch-cleanup/clean-stale-pr-branches.py) | 扫描 org 已合并 PR 残留 head；白名单 [pr-branch-cleanup.allowlist](pr-branch-cleanup/pr-branch-cleanup.allowlist) |
+
+**bump-cloudflare-npm-deps 兼容闸（WW-239）**
+
+- `vitest` / `@vitest/coverage-v8` / `vite`：读目标仓 `@cloudflare/vitest-pool-workers` 的 `peerDependencies`，选满足 peer 的最高版本（非 npm `latest` 跨 major）。
+- 其它 allowlist 包：默认 `npm latest`，但**无 peer 信息时不跨 major**，除非行内带 `allowMajor`（如 `wrangler`）。
+- 开 PR 前：`update_lockfile` 必须成功（默认禁止 package.json-only；仅 `--allow-package-json-only` 可恢复旧行为）；随后 `npm ci`（或 pnpm/yarn 等价）及存在的 `check` / `test` / `lint` 脚本。
+- fixture / 单测：`bump-cloudflare-dependencies/test-bump-cloudflare-npm-deps-lib.sh`（counter / lib-newbook / invest-rss 等历史形态）。
 
 环境变量（drift/bump）：
 

@@ -1,8 +1,16 @@
-# Cloudflare-related npm packages upgraded to npm "latest" (major bumps allowed).
-# One package name per line; blank lines and # comments are ignored.
-wrangler
+# Cloudflare-related npm packages considered for automated bumps.
+# Blank lines and # comments are ignored.
+#
+# Version policy (WW-239):
+# - Default: npm latest, but major bumps are SKIPPED unless the line includes allowMajor.
+# - peer:@cloudflare/vitest-pool-workers — pick the highest vitest (or peer-key) version
+#   that satisfies @cloudflare/vitest-pool-workers peerDependencies in the target repo
+#   (declared range in package.json, or node_modules when present). Never blindly take
+#   vitest@latest across pool-workers peer range (e.g. vitest 5 while pool requires ^4.1).
+#
+wrangler allowMajor
 @cloudflare/workers-types
-@vitest/coverage-v8
-vitest
-vite
+@vitest/coverage-v8 peer:@cloudflare/vitest-pool-workers:vitest
+vitest peer:@cloudflare/vitest-pool-workers:vitest
+vite peer:@cloudflare/vitest-pool-workers:vitest
 @vitejs/plugin-react
