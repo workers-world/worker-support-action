@@ -27,6 +27,7 @@ jobs:
           test -x secret-scan/scan-secrets.sh
           bash -n bump-compat-date/bump-worker-compat-date.sh
           bash -n bump-cloudflare-dependencies/bump-cloudflare-npm-deps.sh
+          bash bump-cloudflare-dependencies/test-bump-cloudflare-npm-deps-lib.sh
           bash -n config-drift-check/check-config-drift-remote.sh
           bash -n secret-scan/scan-secrets.sh
           python3 -m py_compile secret-scan/scan-secrets.py

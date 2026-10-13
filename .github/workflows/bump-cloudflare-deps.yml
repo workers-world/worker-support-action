@@ -1,5 +1,5 @@
-# 定期将 workers-world org 各仓 Cloudflare 相关 npm 依赖升至 latest 并开 PR（无升级则静默跳过）。
-# Linear WW-49 · GitHub workers-world/worker-support-action#6
+# 定期将 workers-world org 各仓 Cloudflare 相关 npm 依赖升至 peer 兼容版本并开 PR（WW-239 兼容闸）。
+# Linear WW-239 / WW-49 · GitHub workers-world/worker-support-action#27
 name: Bump Cloudflare npm deps
 
 on:
@@ -62,6 +62,10 @@ jobs:
         run: |
           echo "## bump-cloudflare-deps summary" >> "$GITHUB_STEP_SUMMARY"
           if [[ -f bump-cloudflare-deps.log ]]; then
+            echo "### Skipped / blocked" >> "$GITHUB_STEP_SUMMARY"
+            grep -E '^(SKIP |BLOCK |BLOCK_REASON |remote summary:)' bump-cloudflare-deps.log >> "$GITHUB_STEP_SUMMARY" || echo "(none)" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Log tail" >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
             tail -50 bump-cloudflare-deps.log >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"

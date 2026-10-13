@@ -1,0 +1,8 @@
+{
+  "name": "notify-worker-fixture",
+  "private": true,
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.8.0",
+    "vitest": "^3.1.0"
+  }
+}

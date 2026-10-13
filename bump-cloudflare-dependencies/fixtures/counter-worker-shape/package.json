@@ -1,0 +1,8 @@
+{
+  "name": "counter-worker-fixture",
+  "private": true,
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.8.50",
+    "vitest": "^3.0.0"
+  }
+}
