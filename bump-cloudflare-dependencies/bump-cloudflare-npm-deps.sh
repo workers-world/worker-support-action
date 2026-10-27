@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # 批量将 workers-world org 各仓 package.json 中的 Cloudflare 相关 npm 依赖升至兼容版本并开 PR。
 # WW-239: peer / lock / ci 兼容闸 — 不可解析或已知 peer 冲突时不建 PR。
+# Gate N1: 开 PR 成功后启用 squash auto-merge + fleet:ready；destin 上 CI 全绿后无人值守合并。
+# 定时任务关闭 DIRTY / behind destin / 被较新 bump head 取代的 npm-deps PR（comment: disposition: superseded）。
 # 用法：
 #   ./bump-cloudflare-npm-deps.sh --check [--remote]
 #   ./bump-cloudflare-npm-deps.sh --apply [--dry-run]
@@ -17,6 +19,12 @@ ALLOWLIST_FILE="${ALLOWLIST_FILE:-$SCRIPT_DIR/cloudflare-npm-deps.allowlist}"
 ISSUE_REPO="${ISSUE_REPO:-workers-world/worker-support-action}"
 LIB_MJS="$SCRIPT_DIR/.bump-cloudflare-npm-deps-lib.mjs"
 
+# Gate N1 — Cloudflare npm-deps fleet PRs (must match open_remote_pr).
+readonly NPM_DEPS_PR_TITLE='chore: bump Cloudflare npm deps (peer-aware)'
+readonly NPM_DEPS_BRANCH_PREFIX='chore/bump-cloudflare-npm-deps-'
+readonly FLEET_READY_LABEL='fleet:ready'
+readonly SUPERSEDE_COMMENT=$'disposition: superseded\n\nGate N1: closing dirty, behind destin, or superseded by a newer `chore/bump-cloudflare-npm-deps-*` head. The weekly bump (or a fresh apply) will open a clean PR when WW-239 peer/lock/smoke gates pass.\n\nAutomation: workers-world/worker-support-action'
+
 EXCLUDE=(cloudflare-os docs-site r2-image-transform-worker aws_hub_to_r2_worker cloudflare-docs framework_sdk_worker)
 LOCAL_EXCLUDE=(templates framework_sdk_worker cloudflare-os docs-site r2-image-transform-worker aws_hub_to_r2_worker cloudflare-docs)
 
@@ -26,6 +34,7 @@ DRY_RUN=0
 SINGLE_REPO=""
 CREATE_ISSUE=0
 CREATE_BLOCKED_ISSUE=0
+CLOSE_SUPERSEDED=0
 ALLOW_PACKAGE_JSON_ONLY=0
 SMOKE_TIMEOUT="${SMOKE_TIMEOUT:-600}"
 
@@ -35,10 +44,12 @@ usage() {
   ./bump-cloudflare-npm-deps.sh --check [--remote] [--create-issue]
   ./bump-cloudflare-npm-deps.sh --apply [--dry-run]
   ./bump-cloudflare-npm-deps.sh --remote --apply [--repo NAME] [--dry-run]
+  ./bump-cloudflare-npm-deps.sh --remote --close-superseded [--repo NAME] [--dry-run]
 
 选项:
   --check              列出需升级 Cloudflare npm 依赖的仓
   --apply              改写 package.json（及 lockfile）并 --remote 时开 PR
+  --close-superseded   关闭 DIRTY / behind / 被较新 bump head 取代的 npm-deps PR（Gate N1）
   --remote             遍历 workers-world org（clone + 开 PR）
   --repo NAME          --remote 时只处理单个仓
   --create-issue       --check 且有过期仓时在 ISSUE_REPO 开 issue
@@ -63,6 +74,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=1; shift ;;
     --create-issue) CREATE_ISSUE=1; shift ;;
     --create-blocked-issue) CREATE_BLOCKED_ISSUE=1; shift ;;
+    --close-superseded) CLOSE_SUPERSEDED=1; shift ;;
     --allow-package-json-only) ALLOW_PACKAGE_JSON_ONLY=1; shift ;;
     --allowlist)
       ALLOWLIST_FILE="${2:?}"
@@ -79,6 +91,18 @@ done
 
 if [[ "$MODE" == "apply" && "$REMOTE" -eq 0 ]]; then
   echo "无效组合：--apply 需与 --remote 联用（org 批量升级）" >&2
+  usage
+  exit 1
+fi
+
+if [[ "$CLOSE_SUPERSEDED" -eq 1 && "$MODE" != "check" ]]; then
+  echo "无效组合：--close-superseded 不可与 --apply 联用" >&2
+  usage
+  exit 1
+fi
+
+if [[ "$CLOSE_SUPERSEDED" -eq 1 && "$REMOTE" -eq 0 ]]; then
+  echo "无效组合：--close-superseded 需与 --remote 联用" >&2
   usage
   exit 1
 fi
@@ -353,6 +377,160 @@ apply_upgrades_in_repo() {
   return 0
 }
 
+npm_deps_head_date_suffix() {
+  local head="$1"
+  if [[ "$head" == "$NPM_DEPS_BRANCH_PREFIX"* ]]; then
+    echo "${head#"$NPM_DEPS_BRANCH_PREFIX"}"
+  else
+    echo ""
+  fi
+}
+
+ensure_fleet_ready_label() {
+  local name="$1"
+  gh label create "$FLEET_READY_LABEL" \
+    --repo "workers-world/$name" \
+    --color "0E8A16" \
+    --description "Gate N1: Cloudflare npm-deps PR ready for destin auto-merge when checks pass" \
+    2>/dev/null || true
+}
+
+# Gate N1: enable GitHub auto-merge (squash) + fleet:ready after WW-239 gates passed at open.
+gate_n1_enable_automerge() {
+  local name="$1"
+  local pr_url="$2"
+  local pr_num="${pr_url##*/}"
+  if [[ -z "$pr_num" || "$pr_num" == "$pr_url" ]]; then
+    echo "WARN $name: 无法从 PR URL 解析 number: $pr_url" >&2
+    return 1
+  fi
+  if ! gh pr merge "$pr_num" --repo "workers-world/$name" --auto --squash >/dev/null 2>&1; then
+    echo "WARN $name: enable auto-merge 失败（检查仓库是否允许 auto-merge / PAT 权限）" >&2
+  else
+    echo "GATE_N1 $name: auto-merge squash enabled for PR #$pr_num" >&2
+  fi
+  ensure_fleet_ready_label "$name"
+  if ! gh pr edit "$pr_num" --repo "workers-world/$name" --add-label "$FLEET_READY_LABEL" >/dev/null 2>&1; then
+    echo "WARN $name: 添加 $FLEET_READY_LABEL 失败" >&2
+  else
+    echo "GATE_N1 $name: label $FLEET_READY_LABEL on PR #$pr_num" >&2
+  fi
+}
+
+close_npm_deps_pr_with_supersede_comment() {
+  local name="$1"
+  local pr_num="$2"
+  local reason="$3"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "DRY-RUN SUPERSEDE_CLOSE $name#$pr_num ($reason)" >&2
+    return 0
+  fi
+  gh pr comment "$pr_num" --repo "workers-world/$name" --body "$SUPERSEDE_COMMENT" >/dev/null 2>&1 || true
+  if gh pr close "$pr_num" --repo "workers-world/$name" --comment "Gate N1: $reason" >/dev/null 2>&1; then
+    echo "SUPERSEDE_CLOSE $name#$pr_num ($reason)" >&2
+    return 0
+  fi
+  echo "WARN $name: close PR #$pr_num failed ($reason)" >&2
+  return 1
+}
+
+# Close dirty / behind / older-head npm-deps PRs. keep_head: optional branch to preserve (newest bump).
+close_superseded_npm_deps_prs_for_repo() {
+  local name="$1"
+  local keep_head="${2:-}"
+  local json line pr_num head state newest_head newest_date head_date
+  local -a heads=()
+  local close_count=0
+
+  if ! command -v gh >/dev/null 2>&1; then
+    return 0
+  fi
+  if repo_is_archived "$name"; then
+    return 0
+  fi
+
+  json="$(gh pr list --repo "workers-world/$name" --state open --limit 50 \
+    --json number,title,headRefName,mergeable,mergeStateStatus 2>/dev/null || echo '[]')"
+  if [[ -z "$json" || "$json" == "[]" ]]; then
+    return 0
+  fi
+
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    pr_num="$(jq -r '.number' <<< "$line")"
+    head="$(jq -r '.headRefName' <<< "$line")"
+    state="$(jq -r '.mergeStateStatus // "UNKNOWN"' <<< "$line")"
+    if [[ "$(jq -r '.title' <<< "$line")" != "$NPM_DEPS_PR_TITLE" ]]; then
+      continue
+    fi
+    if [[ "$head" != "$NPM_DEPS_BRANCH_PREFIX"* ]]; then
+      continue
+    fi
+
+    if [[ -n "$keep_head" && "$head" == "$keep_head" ]]; then
+      if [[ "$state" == "DIRTY" || "$state" == "BEHIND" ]]; then
+        close_npm_deps_pr_with_supersede_comment "$name" "$pr_num" "mergeStateStatus=$state on current bump head" && close_count=$((close_count + 1))
+      fi
+      continue
+    fi
+
+    if [[ -n "$keep_head" && "$head" != "$keep_head" ]]; then
+      close_npm_deps_pr_with_supersede_comment "$name" "$pr_num" "superseded by $keep_head" && close_count=$((close_count + 1))
+      continue
+    fi
+
+    heads+=("$head|$pr_num|$state")
+  done < <(jq -c '.[]' <<< "$json")
+
+  if [[ ${#heads[@]} -eq 0 ]]; then
+    return 0
+  fi
+
+  newest_head=""
+  newest_date=""
+  for entry in "${heads[@]}"; do
+    IFS='|' read -r head pr_num state <<< "$entry"
+    head_date="$(npm_deps_head_date_suffix "$head")"
+    if [[ -z "$newest_date" || ( -n "$head_date" && "$head_date" > "$newest_date" ) ]]; then
+      newest_date="$head_date"
+      newest_head="$head"
+    fi
+  done
+
+  for entry in "${heads[@]}"; do
+    IFS='|' read -r head pr_num state <<< "$entry"
+    if [[ -n "$newest_head" && "$head" != "$newest_head" ]]; then
+      close_npm_deps_pr_with_supersede_comment "$name" "$pr_num" "superseded by newer head $newest_head" && close_count=$((close_count + 1))
+      continue
+    fi
+    if [[ "$state" == "DIRTY" || "$state" == "BEHIND" ]]; then
+      close_npm_deps_pr_with_supersede_comment "$name" "$pr_num" "mergeStateStatus=$state" && close_count=$((close_count + 1))
+    fi
+  done
+
+  if [[ "$close_count" -gt 0 ]]; then
+    echo "SUPERSEDE_SUMMARY $name: closed=$close_count keep_head=${keep_head:-$newest_head}" >&2
+  fi
+}
+
+run_close_superseded_remote() {
+  local close_count=0
+  ensure_gh_git_auth
+
+  if [[ -n "$SINGLE_REPO" ]]; then
+    close_superseded_npm_deps_prs_for_repo "$SINGLE_REPO" ""
+    return 0
+  fi
+
+  for name in $(gh repo list workers-world --json name --jq '.[].name' --limit 200); do
+    is_excluded "$name" && continue
+    close_superseded_npm_deps_prs_for_repo "$name" ""
+    close_count=$((close_count + 1))
+  done
+  echo "remote close-superseded: scanned repos (Gate N1)"
+  return 0
+}
+
 open_remote_pr() {
   local name="$1"
   local repo_dir="$2"
@@ -447,13 +625,16 @@ open_remote_pr() {
     rm -f "$lock_log" "$smoke_log"
     return 2
   fi
+  close_superseded_npm_deps_prs_for_repo "$name" "$bump_branch"
+
   pr_url="$(gh pr create \
     --repo "workers-world/$name" \
     --base "$branch" \
     --head "$bump_branch" \
-    --title "chore: bump Cloudflare npm deps (peer-aware)" \
+    --title "$NPM_DEPS_PR_TITLE" \
     --body "$(pr_body "$repo_dir" "$lock_result" "$smoke_result")")"
   echo "PR $name: $pr_url" >&2
+  gate_n1_enable_automerge "$name" "$pr_url"
   printf 'PR_URL:%s\n' "$pr_url"
   rm -f "$lock_log" "$smoke_log"
   return 0
@@ -532,6 +713,9 @@ $(printf '%s\n' "${blocked_lines[@]}")" \
       echo "blocked summary issue created"
     fi
   fi
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    run_close_superseded_remote || true
+  fi
   cleanup_workdir "$workdir"
   if [[ "$fail_count" -gt 0 ]]; then
     return 1
@@ -582,7 +766,11 @@ $(printf '%s\n' "${stale_lines[@]}")" \
 }
 
 main() {
-  echo "mode=$MODE remote=$REMOTE dry_run=$DRY_RUN allowlist=$ALLOWLIST_FILE allow_pkg_json_only=$ALLOW_PACKAGE_JSON_ONLY"
+  echo "mode=$MODE remote=$REMOTE dry_run=$DRY_RUN close_superseded=$CLOSE_SUPERSEDED allowlist=$ALLOWLIST_FILE allow_pkg_json_only=$ALLOW_PACKAGE_JSON_ONLY"
+  if [[ "$CLOSE_SUPERSEDED" -eq 1 ]]; then
+    run_close_superseded_remote
+    exit $?
+  fi
   if [[ "$MODE" == "apply" ]]; then
     run_remote_apply
     exit $?
