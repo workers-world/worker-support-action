@@ -5,7 +5,7 @@
 | Workflow | 频率 | 作用 |
 |----------|------|------|
 | [bump-compat-date.yml](.github/workflows/bump-compat-date.yml) | 每月 1 日 | 批量抬升各 Worker `compatibility_date` 并开 PR |
-| [bump-cloudflare-deps.yml](.github/workflows/bump-cloudflare-deps.yml) | 每周一 | peer / lock / ci 兼容闸后升级 Cloudflare npm 依赖并开 PR（WW-239, WW-49） |
+| [bump-cloudflare-deps.yml](.github/workflows/bump-cloudflare-deps.yml) | 每周一 | peer / lock / ci 兼容闸后升级 Cloudflare npm 依赖并开 PR；Gate N1 auto-merge + 关闭 superseded（WW-239, WW-49） |
 | [config-drift.yml](.github/workflows/config-drift.yml) | 每周一 | biome/npmrc/.github 漂移 + compat 过期检测，本仓开 issue |
 | [secret-scan.yml](.github/workflows/secret-scan.yml) | 每周二 | gitleaks 全历史扫描 **public** 仓，有发现时脱敏发信 + artifact |
 | [clean-stale-pr-branches.yml](.github/workflows/clean-stale-pr-branches.yml) | 每周一 | 删除 org 已合并 + closed≥30d 未合并 PR head（WW-147；cron 默认 dry-run） |
@@ -43,6 +43,11 @@ Canonical 模板仍来自 [`workers-world/cloudflare_work`](https://github.com/w
 | [check-config-drift-remote.sh](config-drift-check/check-config-drift-remote.sh) | 远程 org 漂移检查 |
 | [scan-secrets.py](secret-scan/scan-secrets.py) | gitleaks org/单仓扫描（默认 public、全历史） |
 | [clean-stale-pr-branches.py](pr-branch-cleanup/clean-stale-pr-branches.py) | 扫描 org 已合并 PR 残留 head；白名单 [pr-branch-cleanup.allowlist](pr-branch-cleanup/pr-branch-cleanup.allowlist) |
+
+**Gate N1（npm-deps fleet）**
+
+- 开 PR 成功后：`gh pr merge --auto --squash` + 标签 `fleet:ready`；destin 上 required checks 全绿后无人值守合并。
+- 每周 bump 同轮关闭 DIRTY / behind / 较旧 `chore/bump-cloudflare-npm-deps-*` head（`disposition: superseded`）。WW-239 peer/lock/smoke 闸仍在开 PR 前执行，未改动。
 
 **bump-cloudflare-npm-deps 兼容闸（WW-239）**
 

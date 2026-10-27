@@ -1,4 +1,6 @@
 # 定期将 workers-world org 各仓 Cloudflare 相关 npm 依赖升至 peer 兼容版本并开 PR（WW-239 兼容闸）。
+# Gate N1: 开 PR 后启用 squash auto-merge + fleet:ready；destin 检查全绿后无人值守合并。
+# 同 schedule 关闭 DIRTY / behind / 被较新 bump head 取代的 npm-deps PR（disposition: superseded）。
 # Linear WW-239 / WW-49 · GitHub workers-world/worker-support-action#27
 name: Bump Cloudflare npm deps
 
@@ -57,13 +59,30 @@ jobs:
           fi
           bash bump-cloudflare-dependencies/bump-cloudflare-npm-deps.sh "${args[@]}" | tee bump-cloudflare-deps.log
 
+      - name: Close superseded / dirty npm-deps PRs (Gate N1)
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run != true }}
+        env:
+          GH_TOKEN: ${{ secrets.GHA_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "::warning::GHA_TOKEN missing; skip Gate N1 supersede-close"
+            exit 0
+          fi
+          gh auth setup-git
+          args=(--remote --close-superseded)
+          if [[ -n "${{ inputs.repo }}" ]]; then
+            args+=(--repo "${{ inputs.repo }}")
+          fi
+          bash bump-cloudflare-dependencies/bump-cloudflare-npm-deps.sh "${args[@]}" | tee -a bump-cloudflare-deps.log
+
       - name: Summary
         if: always()
         run: |
           echo "## bump-cloudflare-deps summary" >> "$GITHUB_STEP_SUMMARY"
           if [[ -f bump-cloudflare-deps.log ]]; then
             echo "### Skipped / blocked" >> "$GITHUB_STEP_SUMMARY"
-            grep -E '^(SKIP |BLOCK |BLOCK_REASON |remote summary:)' bump-cloudflare-deps.log >> "$GITHUB_STEP_SUMMARY" || echo "(none)" >> "$GITHUB_STEP_SUMMARY"
+            grep -E '^(SKIP |BLOCK |BLOCK_REASON |GATE_N1 |SUPERSEDE_|remote summary:|remote close-superseded:)' bump-cloudflare-deps.log >> "$GITHUB_STEP_SUMMARY" || echo "(none)" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "### Log tail" >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
