@@ -70,6 +70,10 @@ function alreadyAtLeast(spec, minFix) {
 }
 
 // --- osv parsing ------------------------------------------------------------
+// OSV range event 显式类型：无类型对象上的 `ev.fixed` 属性访问会被 analyzer 弱解析到
+// deprecated 的 String.prototype.fixed()（Qodana JSDeprecatedSymbols 误报）。
+/** @typedef {{ introduced?: string, fixed?: string }} OsvEvent */
+
 function readOsv(osvJsonPath) {
   return JSON.parse(fs.readFileSync(osvJsonPath, 'utf8'));
 }
@@ -97,11 +101,12 @@ function minFixCandidates(vuln, pkgName, installed) {
       let introduced = null;
       const fixed = [];
       for (const ev of range?.events ?? []) {
-        if (typeof ev?.introduced === 'string') {
-          const v = ev.introduced;
+        const event = /** @type {OsvEvent} */ (ev);
+        if (typeof event?.introduced === 'string') {
+          const v = event.introduced;
           if (v !== '0') introduced = introduced === null ? v : introduced;
         }
-        if (typeof ev?.fixed === 'string') fixed.push(ev.fixed);
+        if (typeof event?.fixed === 'string') fixed.push(event.fixed);
       }
       if (introduced !== null && compareSemver(installed, introduced) < 0) continue;
       for (const f of fixed) {

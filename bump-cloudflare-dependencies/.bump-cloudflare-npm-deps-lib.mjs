@@ -44,7 +44,10 @@ function npmLatest(name) {
   return npmView(`${JSON.stringify(name)} version`);
 }
 
-/** @param {string} a @param {string} b */
+/**
+ * @param {string} a
+ * @param {string} b
+ */
 function semverGt(a, b) {
   return semverLt(b, a);
 }
