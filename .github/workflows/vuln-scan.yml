@@ -1,0 +1,137 @@
+# OSV 驱动的 npm 依赖 CVE 漏洞扫描 + 最小修复版本自动升级 PR（vuln-scan）。
+# 每周三全 org 扫描根 npm lockfile；有可修复项时开 `chore/fix-vulnerable-deps-*` PR
+# （lock 刷新 + pre-PR smoke 兼容闸，WW-239 同款；--auto-merge 默认关，人工审）。
+# scan_only 模式只扫描并在 ISSUE_REPO 开 issue。复用 bump-cloudflare-deps 的通知模式。
+name: Vulnerable npm deps scan
+
+on:
+  schedule:
+    - cron: "0 5 * * 3"   # 每周三 05:00 UTC（错开周一的 bump-cloudflare-deps）
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "仅处理单个仓名（留空则扫描全 org）"
+        required: false
+        type: string
+      dry_run:
+        description: "只打印将开的修复 PR，不推送"
+        required: false
+        type: boolean
+        default: false
+      scan_only:
+        description: "只扫描并在本仓开 issue，不自动修复"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  vuln-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable Corepack (pnpm/yarn lockfiles)
+        run: corepack enable
+
+      - name: Install osv-scanner (pinned)
+        env:
+          OSV_SCANNER_VERSION: "v2.7.1"
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/osv-scanner \
+            "https://github.com/google/osv-scanner/releases/download/${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64"
+          chmod +x /tmp/osv-scanner
+          sudo mv /tmp/osv-scanner /usr/local/bin/osv-scanner
+          osv-scanner --version
+
+      - name: Scan org and open vulnerability-fix PRs
+        id: scan
+        env:
+          GH_TOKEN: ${{ secrets.GHA_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN }}
+          SCAN_ONLY: ${{ inputs.scan_only && 'true' || 'false' }}
+          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+          SINGLE_REPO: ${{ inputs.repo || '' }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "::error::secrets.GHA_TOKEN is required to clone private workers-world repos, authenticate to GitHub Packages, and open PRs (GITHUB_TOKEN cannot access them in this job)." >&2
+            exit 1
+          fi
+          gh auth setup-git
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          args=()
+          if [[ "${SCAN_ONLY}" == "true" ]]; then
+            args+=(--check --remote --create-issue)
+          else
+            args+=(--remote --apply)
+            if [[ -n "${SINGLE_REPO}" ]]; then
+              args+=(--repo "${SINGLE_REPO}")
+            fi
+            if [[ "${DRY_RUN}" == "true" ]]; then
+              args+=(--dry-run)
+            fi
+          fi
+          set +e
+          bash vuln-scan/bump-vulnerable-npm-deps.sh "${args[@]}" | tee vuln-scan.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          # scan_only: 0=干净 / 1=有发现（issue 已开）都算成功；>1 才是真实失败
+          if [[ "${SCAN_ONLY}" == "true" && "$rc" -le 1 ]]; then
+            echo "scan rc=$rc (0=clean, 1=findings -> issue created)"
+            rc=0
+          fi
+          exit "$rc"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## vuln-scan summary" >> "$GITHUB_STEP_SUMMARY"
+          if [[ -f vuln-scan.log ]]; then
+            echo "### Skipped / blocked / findings" >> "$GITHUB_STEP_SUMMARY"
+            grep -E '^(SKIP |BLOCK |BLOCK_REASON |FAIL |PR |VULN |remote (check|summary):|remote close-superseded:)' vuln-scan.log >> "$GITHUB_STEP_SUMMARY" || echo "(none)" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Log tail" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            tail -50 vuln-scan.log >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Notify on failure
+        if: failure()
+        uses: workers-world/action-notify-email@v1
+        with:
+          subject: "worker-support: vuln-scan 失败"
+          body: |
+            Workflow: ${{ github.workflow }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          dedup-key: vuln-scan-fail-${{ github.run_id }}
+          fail-on-error: false
+        env:
+          NOTIFY_WORKER_URL: ${{ vars.NOTIFY_WORKER_URL }}
+          NOTIFY_AUTH_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}
+
+      - name: Notify summary
+        if: success()
+        uses: workers-world/action-notify-email@v1
+        with:
+          subject: "worker-support: vuln-scan 完成"
+          body: |
+            Workflow: ${{ github.workflow }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            详细输出见 Actions 日志与本 workflow 的 Summary 步骤（含 vuln-scan.log 末尾）。
+          dedup-key: vuln-scan-ok-${{ github.run_id }}
+          fail-on-error: false
+        env:
+          NOTIFY_WORKER_URL: ${{ vars.NOTIFY_WORKER_URL }}
+          NOTIFY_AUTH_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}

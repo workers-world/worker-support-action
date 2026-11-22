@@ -9,6 +9,7 @@
 | [config-drift.yml](.github/workflows/config-drift.yml) | 每周一 | biome/npmrc/.github 漂移 + compat 过期检测，本仓开 issue |
 | [secret-scan.yml](.github/workflows/secret-scan.yml) | 每周二 | gitleaks 全历史扫描 **public** 仓，有发现时脱敏发信 + artifact |
 | [clean-stale-pr-branches.yml](.github/workflows/clean-stale-pr-branches.yml) | 每周一 | 删除 org 已合并 + closed≥30d 未合并 PR head（WW-147；cron 默认 dry-run） |
+| [vuln-scan.yml](.github/workflows/vuln-scan.yml) | 每周三 | OSV-Scanner 扫描各仓根 npm lockfile 的 CVE 漏洞；可修复项开最小修复版本 PR（lock + smoke 闸，auto-merge 默认关），scan_only 模式只开 issue |
 
 Canonical 模板仍来自 [`workers-world/cloudflare_work`](https://github.com/workers-world/cloudflare_work) 的 `templates/`（drift/bump workflow 内 sparse checkout）。
 
@@ -21,6 +22,7 @@ Canonical 模板仍来自 [`workers-world/cloudflare_work`](https://github.com/w
 | [config-drift-check/](config-drift-check/) | 远程 org 配置漂移检查 |
 | [secret-scan/](secret-scan/) | gitleaks org/单仓扫描 |
 | [pr-branch-cleanup/](pr-branch-cleanup/) | 已合并/陈旧 PR 分支清理 |
+| [vuln-scan/](vuln-scan/) | npm 依赖 CVE 漏洞扫描（OSV）+ 最低修复版本自动升级 |
 | [release/](release/) | 发布轨分支解析（bump 脚本共用） |
 
 ## 环境
@@ -29,6 +31,7 @@ Canonical 模板仍来自 [`workers-world/cloudflare_work`](https://github.com/w
 |------|------|
 | `GHA_TOKEN` / `GITHUB_TOKEN` | `gh` CLI；org 扫描、clone、开 issue |
 | `GHA_TOKEN`（**bump-cloudflare-deps 必填**） | 私有仓 clone、GitHub Packages（`NODE_AUTH_TOKEN`）、开 PR；不可用 `GITHUB_TOKEN` 替代 |
+| `GHA_TOKEN`（**vuln-scan 必填**） | 同上（私有仓 clone、开 PR）；`OSV_SCANNER_BIN` 可覆盖 scanner 路径 |
 | `GHA_TOKEN`（**clean-stale-pr-branches 删分支**） | 读 PR/分支元数据并 `DELETE` ref；需 **Contents: Read and write**（classic `repo` 或等价 fine-grained） |
 | Repo Variable `PR_BRANCH_CLEANUP_LIVE`（**仅本仓**） | 设为 `true` 时，**定时**任务才真正删分支；否则 cron 仍为 dry-run |
 | `NOTIFY_WORKER_URL` | Org Variable |
@@ -43,6 +46,7 @@ Canonical 模板仍来自 [`workers-world/cloudflare_work`](https://github.com/w
 | [check-config-drift-remote.sh](config-drift-check/check-config-drift-remote.sh) | 远程 org 漂移检查 |
 | [scan-secrets.py](secret-scan/scan-secrets.py) | gitleaks org/单仓扫描（默认 public、全历史） |
 | [clean-stale-pr-branches.py](pr-branch-cleanup/clean-stale-pr-branches.py) | 扫描 org 已合并 PR 残留 head；白名单 [pr-branch-cleanup.allowlist](pr-branch-cleanup/pr-branch-cleanup.allowlist) |
+| [bump-vulnerable-npm-deps.sh](vuln-scan/bump-vulnerable-npm-deps.sh) | OSV 扫描 + 漏洞驱动升级：`--remote --check [--create-issue]` / `--remote --apply [--repo] [--dry-run] [--auto-merge]`；lib 单测 [test-vuln-scan-lib.sh](vuln-scan/test-vuln-scan-lib.sh) |
 
 **Gate N1（npm-deps fleet）**
 
@@ -55,6 +59,16 @@ Canonical 模板仍来自 [`workers-world/cloudflare_work`](https://github.com/w
 - 其它 allowlist 包：默认 `npm latest`，但**无 peer 信息时不跨 major**，除非行内带 `allowMajor`（如 `wrangler`）。
 - 开 PR 前：`update_lockfile` 必须成功（默认禁止 package.json-only；仅 `--allow-package-json-only` 可恢复旧行为）；随后 `npm ci`（或 pnpm/yarn 等价）及存在的 `check` / `test` / `lint` 脚本。
 - fixture / 单测：`bump-cloudflare-dependencies/test-bump-cloudflare-npm-deps-lib.sh`（counter / lib-newbook / invest-rss 等历史形态）。
+
+**vuln-scan（CVE 漏洞扫描 + 自动修复）**
+
+- 检测：[osv-scanner](https://github.com/google/osv-scanner)（pinned `v2.7.1`，workflow 安装；本地可 `OSV_SCANNER_BIN` 覆盖）对根 npm lockfile（`package-lock.json` / `npm-shrinkwrap.json`）全量传递依赖扫描；pnpm/yarn lockfile 与嵌套子包不在 v1 范围（v1 仅根 npm lock）。
+- 修复（`--remote --apply`）：直接依赖精确 pin 到**最低修复版本**；传递依赖写 `package.json` `overrides`；随后同 WW-239 闸：`update_lockfile` 必须成功 + `npm ci` + check/test/lint smoke，不通过则不建 PR（BLOCK + 汇总 issue）。
+- PR head `chore/fix-vulnerable-deps-<date>`、标题 `fix: bump vulnerable npm deps to patched versions`；同轮关闭 DIRTY / behind / 被较新 head 取代的同族 PR（`disposition: superseded`）。
+- Gate N1 auto-merge **默认关**（人工审）；显式 `--auto-merge` 才启用 squash auto-merge + `fleet:ready`。
+- `--check --remote --create-issue`：只扫描并在本仓开 issue（无修复版本的漏洞单独列出）。
+- `--auto-merge` 未开时 PR 等人审；误报可用 `OSV_SCANNER_EXTRA_ARGS='--config=...'` 接 [osv-scanner config](https://google.github.io/osv-scanner/configuration/) 豁免。
+- fixture / 单测：`vuln-scan/test-vuln-scan-lib.sh`（direct / transitive overrides / dev dep / 未受影响 / 无修复版本）。
 
 环境变量（drift/bump）：
 
