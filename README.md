@@ -121,9 +121,11 @@ bash path/to/worker-support-action/bump-compat-date/bump-worker-compat-date.sh -
 
 版本权威 = [package.json](package.json) `version`（对齐 `framework_sdk_worker` / `worker-actions` / `ww` 语义）：
 
-1. Release PR（`dev_*` → `master`）里**本地 bump** `package.json` `version`
-2. 合入 `master`（Validate → Promote）后，[`tag-release.yml`](.github/workflows/tag-release.yml) 读 version 打 annotated `v*` tag；**未 bump**（该版本 tag 已存在）则跳过
+1. **人工开 Release PR**（`dev_*` → `master`），在 PR 里**本地 bump** `package.json` `version`；Validate 在 PR 上把关——含**发版闸**：触及产品文件但未 bump 会 fail
+2. 合入 `master` 后，[`tag-release.yml`](.github/workflows/tag-release.yml) 读 version 打 annotated `v*` tag；**未 bump**（该版本 tag 已存在）则跳过
 3. tag push → [`gh-release-on-tag.yml`](.github/workflows/gh-release-on-tag.yml) → GitHub Release 页
+
+应急通道：Actions → **Promote to master** → `workflow_dispatch` 指明 `release_branch`（旧的 push dev 自动 promote 已收掉，防未 bump 合入积压 master 搭车发版）。
 
 本仓 cron workflow 自跑（无外部 caller pin tag）；版本与 Release 页用于变更追溯，业务仓将来挂 reusable workflow 时 pin `v*` tag。
 

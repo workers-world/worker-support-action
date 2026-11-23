@@ -4,7 +4,7 @@ on:
   push:
     branches: ["dev_*"]
   pull_request:
-    branches: ["dev_*"]
+    branches: ["dev_*", "master"]
   workflow_dispatch:
 
 jobs:
@@ -12,6 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # 发版闸需 diff PR base 与全量 tag
+          fetch-depth: 0
 
       - name: Check scripts and workflows
         run: |
@@ -49,3 +52,9 @@ jobs:
           bash -n vuln-scan/bump-vulnerable-npm-deps.sh
           bash vuln-scan/test-vuln-scan-lib.sh
           test -f secret-scan/gitleaks.toml
+
+      - name: 发版闸（产品文件变更须 bump package.json version）
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+        run: node .github/scripts/check-release-bump.mjs --base="$BASE_BRANCH" --tag-prefix=v
