@@ -1,5 +1,5 @@
 # 定期扫描 workers-world org，删除已合并 PR 残留 head，以及 closed≥30 天未合并 head（WW-147 · #18）
-# 定时真删：本仓 Repository variable PR_BRANCH_CLEANUP_LIVE=true（非 org variable）
+# 定时真删；手动 workflow_dispatch 默认 dry-run，需真删时传 dry_run=false
 name: Clean stale PR branches
 
 on:
@@ -58,7 +58,7 @@ jobs:
             ${{
               github.event_name == 'workflow_dispatch'
               && (inputs.dry_run && 'true' || 'false')
-              || (vars.PR_BRANCH_CLEANUP_LIVE == 'true' && 'false' || 'true')
+              || 'false'
             }}
         run: |
           set +e

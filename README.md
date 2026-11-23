@@ -8,7 +8,7 @@
 | [bump-cloudflare-deps.yml](.github/workflows/bump-cloudflare-deps.yml) | 每周一 | peer / lock / ci 兼容闸后升级 Cloudflare npm 依赖并开 PR；Gate N1 auto-merge + 关闭 superseded（WW-239, WW-49） |
 | [config-drift.yml](.github/workflows/config-drift.yml) | 每周一 | biome/npmrc/.github 漂移 + compat 过期检测，本仓开 issue |
 | [secret-scan.yml](.github/workflows/secret-scan.yml) | 每周二 | gitleaks 全历史扫描 **public** 仓，有发现时脱敏发信 + artifact |
-| [clean-stale-pr-branches.yml](.github/workflows/clean-stale-pr-branches.yml) | 每周一 | 删除 org 已合并 + closed≥30d 未合并 PR head（WW-147；cron 默认 dry-run） |
+| [clean-stale-pr-branches.yml](.github/workflows/clean-stale-pr-branches.yml) | 每周一 | 删除 org 已合并 + closed≥30d 未合并 PR head（WW-147；定时真删，手动默认 dry-run） |
 | [vuln-scan.yml](.github/workflows/vuln-scan.yml) | 每周三 | OSV-Scanner 扫描各仓根 npm lockfile 的 CVE 漏洞；可修复项开最小修复版本 PR（lock + smoke 闸，auto-merge 默认关），scan_only 模式只开 issue |
 
 Canonical 模板仍来自 [`workers-world/cloudflare_work`](https://github.com/workers-world/cloudflare_work) 的 `templates/`（drift/bump workflow 内 sparse checkout）。
@@ -33,7 +33,6 @@ Canonical 模板仍来自 [`workers-world/cloudflare_work`](https://github.com/w
 | `GHA_TOKEN`（**bump-cloudflare-deps 必填**） | 私有仓 clone、GitHub Packages（`NODE_AUTH_TOKEN`）、开 PR；不可用 `GITHUB_TOKEN` 替代 |
 | `GHA_TOKEN`（**vuln-scan 必填**） | 同上（私有仓 clone、开 PR）；`OSV_SCANNER_BIN` 可覆盖 scanner 路径 |
 | `GHA_TOKEN`（**clean-stale-pr-branches 删分支**） | 读 PR/分支元数据并 `DELETE` ref；需 **Contents: Read and write**（classic `repo` 或等价 fine-grained） |
-| Repo Variable `PR_BRANCH_CLEANUP_LIVE`（**仅本仓**） | 设为 `true` 时，**定时**任务才真正删分支；否则 cron 仍为 dry-run |
 | `NOTIFY_WORKER_URL` | Org Variable |
 | `NOTIFY_GHA_TOKEN` | 发信（notify-worker 默认收件人） |
 
