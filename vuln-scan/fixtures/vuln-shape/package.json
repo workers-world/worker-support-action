@@ -1,0 +1,10 @@
+{
+  "name": "vuln-shape-fixture",
+  "dependencies": {
+    "lodash": "^4.17.15",
+    "safe-pkg": "^1.0.0"
+  },
+  "devDependencies": {
+    "dev-vuln-pkg": "~2.0.0"
+  }
+}

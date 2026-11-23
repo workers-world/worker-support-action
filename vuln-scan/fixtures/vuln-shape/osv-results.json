@@ -1,0 +1,109 @@
+{
+  "results": [
+    {
+      "source": { "path": "package-lock.json", "type": "lockfile" },
+      "packages": [
+        {
+          "package": { "name": "lodash", "version": "4.17.15", "ecosystem": "npm" },
+          "vulnerabilities": [
+            {
+              "id": "GHSA-xxxx",
+              "aliases": ["CVE-2020-8203"],
+              "affected": [
+                {
+                  "package": { "name": "lodash", "ecosystem": "npm" },
+                  "ranges": [
+                    {
+                      "type": "SEMVER",
+                      "events": [ { "introduced": "0" }, { "fixed": "4.17.19" } ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": { "name": "transitive-vuln", "version": "1.0.1", "ecosystem": "npm" },
+          "vulnerabilities": [
+            {
+              "id": "GHSA-trans",
+              "aliases": [],
+              "affected": [
+                {
+                  "package": { "name": "transitive-vuln", "ecosystem": "npm" },
+                  "ranges": [
+                    {
+                      "type": "ECOSYSTEM",
+                      "events": [ { "introduced": "0" }, { "fixed": "1.0.5" } ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": { "name": "dev-vuln-pkg", "version": "2.0.0", "ecosystem": "npm" },
+          "vulnerabilities": [
+            {
+              "id": "GHSA-dev",
+              "aliases": [],
+              "affected": [
+                {
+                  "package": { "name": "dev-vuln-pkg", "ecosystem": "npm" },
+                  "ranges": [
+                    {
+                      "type": "SEMVER",
+                      "events": [ { "introduced": "2.0.0" }, { "fixed": "2.0.5" } ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": { "name": "not-affected", "version": "1.0.0", "ecosystem": "npm" },
+          "vulnerabilities": [
+            {
+              "id": "GHSA-nope",
+              "aliases": [],
+              "affected": [
+                {
+                  "package": { "name": "not-affected", "ecosystem": "npm" },
+                  "ranges": [
+                    {
+                      "type": "SEMVER",
+                      "events": [ { "introduced": "2.0.0" }, { "fixed": "2.1.0" } ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": { "name": "no-fix-yet", "version": "1.1.0", "ecosystem": "npm" },
+          "vulnerabilities": [
+            {
+              "id": "GHSA-open",
+              "aliases": [],
+              "affected": [
+                {
+                  "package": { "name": "no-fix-yet", "ecosystem": "npm" },
+                  "ranges": [
+                    {
+                      "type": "SEMVER",
+                      "events": [ { "introduced": "0" } ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
