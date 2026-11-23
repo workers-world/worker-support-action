@@ -1,0 +1,7 @@
+{
+  "name": "worker-support-action",
+  "version": "0.1.0",
+  "private": true,
+  "description": "workers-world org 级定时运维 Action 仓（compat-date bump / config drift / secret scan / vuln scan / PR cleanup）",
+  "license": "MIT"
+}
