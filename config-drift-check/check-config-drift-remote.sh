@@ -2,6 +2,12 @@
 # 远程防漂移检查：clone workers-world org 下全部 Worker 仓，与 meta 仓 templates/worker/ canonical 对比。
 # 本地日常检查用 sync-worker-configs.sh --check（共置目录，无需 clone）。
 # 漂移仓输出表格，并在 meta 仓开 issue 报告。CI 或本地均可运行（需 gh 与网络）。
+#
+# 基线纪律（GitOps 模型）：
+#   - 报告是「as-of」一次性视图，修复前必须重新运行本检查，勿按 issue 清单盲修
+#   - 仓身份由各仓 .ww-repo.json 的 type 声明（契约：framework_sdk_worker/meta/repo-meta）；
+#     type ∈ {sdk, action, tool, app} 的仓 .github 自治，不做 worker 模板比对
+#     （曾致 java-actions/container-actions 等被误报 .github 漂移）
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -10,11 +16,15 @@ ISSUE_REPO="${ISSUE_REPO:-workers-world/worker-support-action}"
 TPL="$TEMPLATES_ROOT/worker"
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
+AS_OF="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# 与本地 sync 脚本一致的排除清单
+# 与本地 sync 脚本一致的排除清单（未声明 .ww-repo.json 的仓回落此清单）
 EXCLUDE=(cloudflare-os docs-site r2-image-transform-worker aws_hub_to_r2_worker cloudflare-docs framework_sdk_worker)
+# .github 自治类型（契约：framework_sdk_worker/meta/repo-meta；与 sync-worker-github-configs.py GITHUB_SELF_GOVERNED_TYPES 一致）
+GITHUB_SELF_GOVERNED_TYPES="sdk action tool app"
 
 DRIFT_REPORT=""
+WARN_REPORT=""
 REPO_COUNT=0
 DRIFT_COUNT=0
 
@@ -32,6 +42,14 @@ for name in $(gh repo list workers-world --json name --jq '.[].name' --limit 200
   REPO_COUNT=$((REPO_COUNT + 1))
   [[ ! -f "$WORKDIR/$name/package.json" ]] && continue
 
+  # 仓类型（未声明 = null，回落 worker 基准）
+  repo_type=""
+  if [[ -f "$WORKDIR/$name/.ww-repo.json" ]]; then
+    repo_type="$(node -e "try{const m=require('$WORKDIR/$name/.ww-repo.json');console.log(typeof m.type==='string'?m.type:'')}catch{console.log('')}" 2>/dev/null || echo "")"
+  else
+    WARN_REPORT="${WARN_REPORT}- \`$name\`: 缺 .ww-repo.json（建议声明仓身份，见 framework_sdk_worker/meta/repo-meta）"$'\n'
+  fi
+
   issues=""
   [[ ! -f "$WORKDIR/$name/biome.json" ]] && issues="缺 biome.json"
   if [[ ! -f "$WORKDIR/$name/biome-shared.json" ]]; then
@@ -42,7 +60,13 @@ for name in $(gh repo list workers-world --json name --jq '.[].name' --limit 200
   if [[ -f "$WORKDIR/$name/.npmrc" ]] && { ! grep -qF '@workers-world:registry=https://npm.pkg.github.com' "$WORKDIR/$name/.npmrc" || ! grep -qF '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' "$WORKDIR/$name/.npmrc"; }; then
     issues="${issues:+$issues、}.npmrc 漂移"
   fi
-  if [[ -f "$WORKDIR/$name/.github/workflows/ci.yml" ]] && [[ -f "$TEMPLATES_ROOT/github/sync-worker-github-configs.py" ]]; then
+  # .github 比对：worker 类型（或未声明）才套标准模板；自治类型跳过
+  github_check=0
+  case " $GITHUB_SELF_GOVERNED_TYPES " in
+    *" $repo_type "*) github_check=0 ;;
+    *) github_check=1 ;;
+  esac
+  if [[ $github_check -eq 1 ]] && [[ -f "$WORKDIR/$name/.github/workflows/ci.yml" ]] && [[ -f "$TEMPLATES_ROOT/github/sync-worker-github-configs.py" ]]; then
     if ! python3 "$TEMPLATES_ROOT/github/sync-worker-github-configs.py" --check-one "$WORKDIR/$name" "$name" 2>/dev/null; then
       issues="${issues:+$issues、}.github 漂移"
     fi
@@ -50,18 +74,23 @@ for name in $(gh repo list workers-world --json name --jq '.[].name' --limit 200
 
   if [[ -n "$issues" ]]; then
     DRIFT_COUNT=$((DRIFT_COUNT + 1))
-    DRIFT_REPORT="${DRIFT_REPORT}- \`$name\`: $issues"$'\n'
-    echo "DRIFT: $name → $issues"
+    DRIFT_REPORT="${DRIFT_REPORT}- \`$name\`（type=${repo_type:-未声明}）: $issues"$'\n'
+    echo "DRIFT: $name（type=${repo_type:-未声明}） → $issues"
   fi
 done
 
-echo "checked $REPO_COUNT repos, $DRIFT_COUNT drifted"
+echo "checked $REPO_COUNT repos, $DRIFT_COUNT drifted (as-of $AS_OF)"
 
 if [[ $DRIFT_COUNT -gt 0 ]] && [[ "${GH_TOKEN:-}" != "" ]] && command -v gh >/dev/null 2>&1; then
   gh issue create \
     --repo "$ISSUE_REPO" \
     --title "配置漂移：$DRIFT_COUNT 个仓偏离 templates/worker canonical" \
     --body "本地修复（meta 仓）：\`./sync-worker-configs.sh\`（biome/npmrc）与 \`./sync-worker-github-configs.sh\`（.github）后各仓提交。
+
+> ⚠️ 修复前先重跑本检查——本报告是 as-of 快照，清单可能已过时。
+> 基线：templates/worker canonical（.github 基线见 sync-worker-github-configs.py 内的 bundle tag）。
+
+as-of：$AS_OF
 
 漂移清单：
 
