@@ -18,8 +18,9 @@ ISSUE_REPO="${ISSUE_REPO:-workers-world/worker-support-action}"
 TPL_WRANGLER="$TEMPLATES_ROOT/worker/wrangler.example.toml"
 OVERRIDES_FILE="$TEMPLATES_ROOT/github/worker-ci-overrides.yaml"
 
-EXCLUDE=(cloudflare-os docs-site r2-image-transform-worker aws_hub_to_r2_worker cloudflare-docs framework_sdk_worker)
-LOCAL_EXCLUDE=(templates framework_sdk_worker cloudflare-os docs-site r2-image-transform-worker aws_hub_to_r2_worker cloudflare-docs)
+# 参与范围派生（勿写死仓单）：.ww-repo.json type: "worker" 且 pipes.config != 'own'
+# （契约：framework_sdk_worker/meta/repo-meta；--include-repo 显式点名可越过 type 判定）。
+INCLUDE_REPOS=()
 
 MODE="check"
 REMOTE=0
@@ -27,7 +28,6 @@ DRY_RUN=0
 MAX_AGE_DAYS=30
 TARGET_DATE=""
 MIN_DATE="2026-05-01"
-INCLUDE_DOCS_SITE=0
 SINGLE_REPO=""
 CREATE_ISSUE=0
 
@@ -60,8 +60,8 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=1; shift ;;
     --create-issue) CREATE_ISSUE=1; shift ;;
     --include)
-      [[ "${2:-}" == "docs-site" ]] || { echo "--include 目前仅支持 docs-site" >&2; exit 1; }
-      INCLUDE_DOCS_SITE=1
+      # 兼容旧值 docs-site；显式点名越过头仓 type 判定
+      INCLUDE_REPOS+=("${2:?}")
       shift 2
       ;;
     --max-age-days)
@@ -124,28 +124,20 @@ date_max() {
   fi
 }
 
-is_excluded() {
-  local name="$1"
-  local e
-  for e in "${EXCLUDE[@]}"; do
-    [[ "$name" == "$e" ]] && return 0
-  done
-  if [[ "$name" == "docs-site" && "$INCLUDE_DOCS_SITE" -eq 0 ]]; then
-    return 0
-  fi
-  return 1
-}
-
-is_local_excluded() {
-  local name="$1"
-  local e
-  for e in "${LOCAL_EXCLUDE[@]}"; do
-    [[ "$name" == "$e" ]] && return 0
-  done
-  if [[ "$name" == "docs-site" && "$INCLUDE_DOCS_SITE" -eq 0 ]]; then
-    return 0
-  fi
-  return 1
+# 仓是否参与 compat 管道：meta 声明 type: "worker" 且 pipes.config != 'own'；
+# 或 --include-repo 显式点名（越过 type 判定，如 docs-site 临时纳入）。
+compat_participates() {
+  local dir="$1" name="$2"
+  node -e '
+const [dir, name, includeRepos] = process.argv.slice(1);
+try {
+  if (includeRepos.split(",").includes(name)) process.exit(0);
+  const m = JSON.parse(require("fs").readFileSync(dir + "/.ww-repo.json", "utf8"));
+  if (m.type !== "worker") process.exit(1);
+  if (m.pipes && m.pipes.config === "own") process.exit(1);
+  process.exit(0);
+} catch { process.exit(1); }
+' "$dir" "$name" "${INCLUDE_REPOS[*]:-}"
 }
 
 worker_min_date() {
@@ -256,7 +248,7 @@ apply_local() {
   local dir w file
   for dir in "$WORKSPACE_ROOT"/*/; do
     w="$(basename "$dir")"
-    is_local_excluded "$w" && continue
+    compat_participates "$dir" "$w" || continue
     [[ ! -f "$dir/package.json" ]] && continue
     file="$(find_wrangler_config "$dir" || true)"
     [[ -z "$file" ]] && continue
@@ -392,12 +384,12 @@ run_remote() {
   fi
 
   for name in $(gh repo list workers-world --json name --jq '.[].name' --limit 200); do
-    is_excluded "$name" && continue
     if ! clone_org_repo "$name" "$workdir/$name" 2>/dev/null; then
       echo "FAIL $name: clone failed"
       fail_count=$((fail_count + 1))
       continue
     fi
+    compat_participates "$workdir/$name" "$name" || continue
     [[ ! -f "$workdir/$name/package.json" ]] && continue
     pr_line="$(open_remote_pr "$name" "$workdir/$name" || true)"
     if [[ "$pr_line" == http* ]]; then
@@ -427,7 +419,7 @@ run_check_local() {
   threshold="$(days_ago "$MAX_AGE_DAYS")"
   for dir in "$WORKSPACE_ROOT"/*/; do
     w="$(basename "$dir")"
-    is_local_excluded "$w" && continue
+    compat_participates "$dir" "$w" || continue
     [[ ! -f "$dir/package.json" ]] && continue
     if check_worker_dir "$dir" "$w"; then
       stale_count=$((stale_count + 1))
@@ -472,11 +464,11 @@ run_check_remote() {
   ensure_git_identity
 
   for name in $(gh repo list workers-world --json name --jq '.[].name' --limit 200); do
-    is_excluded "$name" && continue
     clone_org_repo "$name" "$workdir/$name" shallow 2>/dev/null || {
       echo "SKIP $name: clone failed"
       continue
     }
+    compat_participates "$workdir/$name" "$name" || continue
     repo_count=$((repo_count + 1))
     [[ ! -f "$workdir/$name/package.json" ]] && continue
     if check_worker_dir "$workdir/$name" "$name"; then

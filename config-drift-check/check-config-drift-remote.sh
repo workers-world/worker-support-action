@@ -18,9 +18,9 @@ WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 AS_OF="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# 与本地 sync 脚本一致的排除清单（未声明 .ww-repo.json 的仓回落此清单）
-EXCLUDE=(cloudflare-os docs-site r2-image-transform-worker aws_hub_to_r2_worker cloudflare-docs framework_sdk_worker)
-# .github 自治类型（契约：framework_sdk_worker/meta/repo-meta；与 sync-worker-github-configs.py GITHUB_SELF_GOVERNED_TYPES 一致）
+# 参与范围派生（勿写死仓单）：.ww-repo.json 存在 = 组件；worker 配置检查限 type: "worker"
+# 且 pipes.config != 'own'；.github 检查限 .github 非自治（sdk/action/tool/app 自治 + pipes.ci=custom）。
+# 未声明 meta 的仓跳过并 WARN（建议声明仓身份，见 framework_sdk_worker/meta/repo-meta）。
 GITHUB_SELF_GOVERNED_TYPES="sdk action tool app"
 
 DRIFT_REPORT=""
@@ -29,12 +29,6 @@ REPO_COUNT=0
 DRIFT_COUNT=0
 
 for name in $(gh repo list workers-world --json name --jq '.[].name' --limit 200); do
-  skip=0
-  for e in "${EXCLUDE[@]}"; do
-    [[ "$name" == "$e" ]] && skip=1
-  done
-  [[ $skip -eq 1 ]] && continue
-
   git clone --depth 1 --quiet "https://github.com/workers-world/$name.git" "$WORKDIR/$name" 2>/dev/null || {
     echo "SKIP $name: clone failed"
     continue
@@ -42,12 +36,21 @@ for name in $(gh repo list workers-world --json name --jq '.[].name' --limit 200
   REPO_COUNT=$((REPO_COUNT + 1))
   [[ ! -f "$WORKDIR/$name/package.json" ]] && continue
 
-  # 仓类型（未声明 = null，回落 worker 基准）
+  # 仓类型与管道策略（未声明 = 非组件：跳过并 WARN）
   repo_type=""
+  repo_pipes_config=""
   if [[ -f "$WORKDIR/$name/.ww-repo.json" ]]; then
-    repo_type="$(node -e "try{const m=require('$WORKDIR/$name/.ww-repo.json');console.log(typeof m.type==='string'?m.type:'')}catch{console.log('')}" 2>/dev/null || echo "")"
+    repo_meta="$(node -e "try{const m=require('$WORKDIR/$name/.ww-repo.json');console.log((typeof m.type==='string'?m.type:'')+'|'+((m.pipes&&m.pipes.config)==='own'?'own':''))}catch{console.log('|')}" 2>/dev/null || echo "|")"
+    repo_type="${repo_meta%%|*}"
+    repo_pipes_config="${repo_meta##*|}"
   else
     WARN_REPORT="${WARN_REPORT}- \`$name\`: 缺 .ww-repo.json（建议声明仓身份，见 framework_sdk_worker/meta/repo-meta）"$'\n'
+    continue
+  fi
+
+  # worker 配置检查：type: "worker" 且 pipes.config != 'own'
+  if [[ "$repo_type" != "worker" || "$repo_pipes_config" == "own" ]]; then
+    continue
   fi
 
   issues=""
