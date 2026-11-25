@@ -18,10 +18,12 @@ WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 AS_OF="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# 参与范围派生（勿写死仓单）：.ww-repo.json 存在 = 组件；worker 配置检查限 type: "worker"
-# 且 pipes.config != 'own'；.github 检查限 .github 非自治（sdk/action/tool/app 自治 + pipes.ci=custom）。
-# 未声明 meta 的仓跳过并 WARN（建议声明仓身份，见 framework_sdk_worker/meta/repo-meta）。
+# 参与范围派生（勿写死仓单）：一律走 repo-meta CLI 门面（快照由 `ww wt deps --sync`
+# 生成到 templates/github/repo-meta/，随本仓 templates sparse-checkout 下发）。
+# worker 配置检查：participates config；.github 检查：GITHUB_SELF_GOVERNED_TYPES + python --check-one 双闸。
 GITHUB_SELF_GOVERNED_TYPES="sdk action tool app"
+META_CLI="$TEMPLATES_ROOT/github/repo-meta/repo-meta-cli.mjs"
+[[ -f "$META_CLI" ]] || { echo "missing $META_CLI（先跑 ww wt deps --sync 生成快照）" >&2; exit 1; }
 
 DRIFT_REPORT=""
 WARN_REPORT=""
@@ -36,20 +38,23 @@ for name in $(gh repo list workers-world --json name --jq '.[].name' --limit 200
   REPO_COUNT=$((REPO_COUNT + 1))
   [[ ! -f "$WORKDIR/$name/package.json" ]] && continue
 
-  # 仓类型与管道策略（未声明 = 非组件：跳过并 WARN）
-  repo_type=""
-  repo_pipes_config=""
-  if [[ -f "$WORKDIR/$name/.ww-repo.json" ]]; then
-    repo_meta="$(node -e "try{const m=require('$WORKDIR/$name/.ww-repo.json');console.log((typeof m.type==='string'?m.type:'')+'|'+((m.pipes&&m.pipes.config)==='own'?'own':''))}catch{console.log('|')}" 2>/dev/null || echo "|")"
-    repo_type="${repo_meta%%|*}"
-    repo_pipes_config="${repo_meta##*|}"
-  else
+  # 仓身份（未声明 = WARN + 跳过；非法 = META-ERROR 记 FAIL）
+  repo_meta_rc=0
+  repo_type="$(node "$META_CLI" get "$WORKDIR/$name" 2>/dev/null)" || repo_meta_rc=$?
+  if [[ $repo_meta_rc -eq 2 ]]; then
+    echo "META-ERROR $name: $(node "$META_CLI" get "$WORKDIR/$name" 2>&1 >/dev/null | head -1)"
+    DRIFT_COUNT=$((DRIFT_COUNT + 1))
+    DRIFT_REPORT="${DRIFT_REPORT}- \`$name\`: .ww-repo.json 非法（修复后再跑）"$'\n'
+    continue
+  fi
+  if [[ "$repo_type" == "null" ]]; then
     WARN_REPORT="${WARN_REPORT}- \`$name\`: 缺 .ww-repo.json（建议声明仓身份，见 framework_sdk_worker/meta/repo-meta）"$'\n'
     continue
   fi
+  repo_type="$(node -e "const m=JSON.parse(process.argv[1]);console.log(m.type??'')" "$repo_type")"
 
-  # worker 配置检查：type: "worker" 且 pipes.config != 'own'
-  if [[ "$repo_type" != "worker" || "$repo_pipes_config" == "own" ]]; then
+  # worker 配置检查：participates config（type: worker 且 pipes.config 未退出）
+  if ! node "$META_CLI" participates config "$WORKDIR/$name" 2>/dev/null; then
     continue
   fi
 

@@ -17,6 +17,8 @@ TEMPLATES_ROOT="${TEMPLATES_ROOT:-$REPO_ROOT/templates}"
 ISSUE_REPO="${ISSUE_REPO:-workers-world/worker-support-action}"
 TPL_WRANGLER="$TEMPLATES_ROOT/worker/wrangler.example.toml"
 OVERRIDES_FILE="$TEMPLATES_ROOT/github/worker-ci-overrides.yaml"
+META_CLI="$TEMPLATES_ROOT/github/repo-meta/repo-meta-cli.mjs"
+[[ -f "$META_CLI" ]] || { echo "missing $META_CLI（先跑 ww wt deps --sync 生成快照）" >&2; exit 1; }
 
 # 参与范围派生（勿写死仓单）：.ww-repo.json type: "worker" 且 pipes.config != 'own'
 # （契约：framework_sdk_worker/meta/repo-meta；--include-repo 显式点名可越过 type 判定）。
@@ -124,20 +126,21 @@ date_max() {
   fi
 }
 
-# 仓是否参与 compat 管道：meta 声明 type: "worker" 且 pipes.config != 'own'；
-# 或 --include-repo 显式点名（越过 type 判定，如 docs-site 临时纳入）。
+# 仓是否参与 compat 管道：一律走 repo-meta CLI 门面（勿手写 meta 解析）；
+# 快照由 `ww wt deps --sync` 生成到 templates/github/repo-meta/；
+# --include-repo 显式点名可越过 type 判定（如 docs-site 临时纳入）。
 compat_participates() {
   local dir="$1" name="$2"
-  node -e '
-const [dir, name, includeRepos] = process.argv.slice(1);
-try {
-  if (includeRepos.split(",").includes(name)) process.exit(0);
-  const m = JSON.parse(require("fs").readFileSync(dir + "/.ww-repo.json", "utf8"));
-  if (m.type !== "worker") process.exit(1);
-  if (m.pipes && m.pipes.config === "own") process.exit(1);
-  process.exit(0);
-} catch { process.exit(1); }
-' "$dir" "$name" "${INCLUDE_REPOS[*]:-}"
+  case " ${INCLUDE_REPOS[*]:-} " in
+    *" $name "*) return 0 ;;
+  esac
+  local rc=0
+  node "$META_CLI" participates config "$dir" || rc=$?
+  if [[ $rc -eq 2 ]]; then
+    echo "META-ERROR $name: .ww-repo.json 非法（修复后再跑）" >&2
+    return 1
+  fi
+  return $rc
 }
 
 worker_min_date() {
