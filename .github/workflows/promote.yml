@@ -1,10 +1,11 @@
 name: Promote to master
 
+# 日常发版：人工开 Release PR（dev_* → master），Validate 在 PR 上把关（含发版闸）。
+# 本 workflow 仅应急 promote（须显式指明 release_branch）。
+# 旧的自动 promote（push dev_* → Validate → workflow_run 自动合 master）已收掉：
+# 「自动合 master + bump 了才发版」会让未 bump 的合入积压 master、搭下一次发版的车出去。
+# 由 worker-promote 执行；无 master 时 preflight 先 bootstrap。
 on:
-  workflow_run:
-    workflows: ["Validate action"]
-    types: [completed]
-    branches: ["dev_*"]
   workflow_dispatch:
     inputs:
       release_branch:
@@ -18,11 +19,6 @@ jobs:
   preflight:
     runs-on: ubuntu-latest
     permissions: {}
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
-       startsWith(github.event.workflow_run.head_branch, 'dev_'))
     outputs:
       need_promote: ${{ steps.preflight.outputs.need_promote }}
     steps:
@@ -30,8 +26,7 @@ jobs:
         id: preflight
         env:
           GH_TOKEN: ${{ secrets.GHA_TOKEN }}
-          RELEASE_BRANCH: >-
-            ${{ github.event_name == 'workflow_dispatch' && inputs.release_branch || github.event.workflow_run.head_branch }}
+          RELEASE_BRANCH: ${{ inputs.release_branch }}
         run: |
           set -euo pipefail
           repo="${GITHUB_REPOSITORY}"
@@ -58,7 +53,7 @@ jobs:
     needs: preflight
     permissions: {}
     if: needs.preflight.outputs.need_promote == 'true'
-    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.2.33
+    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.2.71
     with:
-      release_branch: ${{ github.event_name == 'workflow_dispatch' && inputs.release_branch || github.event.workflow_run.head_branch }}
+      release_branch: ${{ inputs.release_branch }}
     secrets: inherit

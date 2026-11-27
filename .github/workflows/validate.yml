@@ -4,7 +4,7 @@ on:
   push:
     branches: ["dev_*"]
   pull_request:
-    branches: ["dev_*"]
+    branches: ["dev_*", "master"]
   workflow_dispatch:
 
 jobs:
@@ -12,6 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # 发版闸需 diff PR base 与全量 tag
+          fetch-depth: 0
 
       - name: Check scripts and workflows
         run: |
@@ -43,9 +46,17 @@ jobs:
           test -f .github/workflows/tag-release.yml
           # 版本权威 = package.json version（tag-release 据此打 v* tag），格式在 PR 阶段把关
           node -e "const v=require('./package.json').version; if(!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(String(v))) { console.error('package.json version 须为 X.Y.Z，当前: '+v); process.exit(1); }"
+          # 仓身份声明校验（契约源：framework_sdk_worker/meta/repo-meta）
+          node -e "const m=require('./.ww-repo.json'); if(m.type!=='action') { console.error('.ww-repo.json type 应为 action，当前: '+m.type); process.exit(1); }"
           test -x vuln-scan/bump-vulnerable-npm-deps.sh
           test -f vuln-scan/.vuln-scan-lib.mjs
           test -f vuln-scan/fixtures/vuln-shape/osv-results.json
           bash -n vuln-scan/bump-vulnerable-npm-deps.sh
           bash vuln-scan/test-vuln-scan-lib.sh
           test -f secret-scan/gitleaks.toml
+
+      - name: 发版闸（产品文件变更须 bump package.json version）
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+        run: node .github/scripts/check-release-bump.mjs --base="$BASE_BRANCH" --tag-prefix=v
